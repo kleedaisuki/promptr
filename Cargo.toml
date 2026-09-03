@@ -2,5 +2,38 @@
 name = "promptr"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+description = "A persistent, deterministic prompt graph manager"
+license = "GPL-3.0-only"
+repository = "https://github.com/kleedaisuki/promptr"
+keywords = ["prompt", "dsl", "sqlite", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "promptr"
+path = "src/lib.rs"
 
 [dependencies]
+bitflags = { version = "2.9", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+crossterm = "0.29"
+directories = "6.0"
+nucleo-matcher = "0.3"
+ratatui = "0.30.2"
+ratatui-textarea = { version = "0.9.2", features = ["search"] }
+rusqlite = { version = "0.40.0", features = ["backup", "bundled", "limits", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tempfile = "3.20"
+thiserror = "2.0"
+toml_edit = { version = "0.23", features = ["serde"] }
+unicode-width = "0.2"
+
+[dev-dependencies]
+proptest = "1.7"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
