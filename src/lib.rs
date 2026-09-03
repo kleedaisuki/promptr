@@ -7,8 +7,8 @@ pub mod application;
 pub mod diagnostic;
 pub mod domain;
 pub mod infrastructure;
+pub mod interface;
 pub mod language;
 
 pub use application::{InvocationPolicy, Promptr, PromptrOptions, Value};
 pub use diagnostic::{Diagnostic, DiagnosticCategory, Severity, SourceSpan};
-
