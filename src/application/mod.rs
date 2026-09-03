@@ -6,6 +6,6 @@ pub mod ports;
 pub(crate) mod runtime;
 mod value;
 
-pub use app::{InvocationPolicy, Promptr, PromptrOptions};
+pub use app::{InvocationPolicy, NodePrecondition, Promptr, PromptrOptions};
 pub use command::{CheckedProgram, Effects, NodeFilter, Op};
 pub use value::{CanonicalXml, NodeView, SearchHitView, SpillWriter, Value};

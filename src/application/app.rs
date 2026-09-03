@@ -5,6 +5,7 @@ use std::{fs, path::PathBuf};
 use crate::{
     Diagnostic, DiagnosticCategory,
     diagnostic::Result,
+    domain::{NodeId, Revision, Symbol},
     infrastructure::{
         config::Config,
         sqlite::{SqliteDatabase, SqliteOptions},
@@ -58,6 +59,55 @@ pub struct Promptr {
     pub(crate) config: Config,
 }
 
+/// @brief 节点操作的乐观修订前置条件。 / Optimistic revision precondition for a node operation.
+/// @note 符号绑定、稳定标识和修订号必须同时匹配；重命名、删除或替换身份都会产生冲突。 / The symbol binding, stable identity, and revision must all match; rename, deletion, or identity replacement is a conflict.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodePrecondition {
+    /// @brief 调用方观察到的符号绑定。 / Symbol binding observed by the caller.
+    symbol: Symbol,
+    /// @brief 调用方观察到的稳定节点标识。 / Stable node identity observed by the caller.
+    node_id: NodeId,
+    /// @brief 调用方观察到的节点修订号。 / Node revision observed by the caller.
+    revision: Revision,
+}
+
+impl NodePrecondition {
+    /// @brief 构造节点修订前置条件。 / Construct a node revision precondition.
+    /// @param symbol 调用方观察到的符号。 / Symbol observed by the caller.
+    /// @param node_id 调用方观察到的稳定标识。 / Stable identity observed by the caller.
+    /// @param revision 调用方观察到的修订号。 / Revision observed by the caller.
+    /// @return 强类型前置条件。 / Strongly typed precondition.
+    #[must_use]
+    pub const fn new(symbol: Symbol, node_id: NodeId, revision: Revision) -> Self {
+        Self {
+            symbol,
+            node_id,
+            revision,
+        }
+    }
+
+    /// @brief 借用调用方观察到的符号。 / Borrow the symbol observed by the caller.
+    /// @return 符号。 / Symbol.
+    #[must_use]
+    pub const fn symbol(&self) -> &Symbol {
+        &self.symbol
+    }
+
+    /// @brief 返回调用方观察到的节点标识。 / Return the node identity observed by the caller.
+    /// @return 节点标识。 / Node identity.
+    #[must_use]
+    pub const fn node_id(&self) -> NodeId {
+        self.node_id
+    }
+
+    /// @brief 返回调用方观察到的修订号。 / Return the revision observed by the caller.
+    /// @return 修订号。 / Revision.
+    #[must_use]
+    pub const fn revision(&self) -> Revision {
+        self.revision
+    }
+}
+
 impl Promptr {
     /// @brief 使用生产 SQLite 适配器打开应用。 / Open the application with the production SQLite adapter.
     /// @param options 数据库覆盖与已验证配置。 / Database override and validated configuration.
@@ -98,6 +148,7 @@ impl Promptr {
         config.database.path = database_path.clone();
         let sqlite_options = SqliteOptions::from(&config.database);
         let database = SqliteDatabase::open_with_options(database_path, sqlite_options)?;
+        database.validate_operational()?;
         Ok(Self::from_parts(Box::new(database), config))
     }
 
@@ -115,7 +166,21 @@ impl Promptr {
     /// @param policy 调用能力策略。 / Invocation capability policy.
     /// @return 类型化值或结构化诊断。 / Typed values or structured diagnostic.
     pub fn eval(&mut self, source: &str, policy: InvocationPolicy) -> Result<Vec<Value>> {
-        crate::application::runtime::eval(self, source, policy, None)
+        self.eval_preconditioned(source, policy, &[])
+    }
+
+    /// @brief 在节点修订前置条件下执行源程序。 / Evaluate source under node revision preconditions.
+    /// @param source DSL 源码。 / DSL source.
+    /// @param policy 调用能力策略。 / Invocation capability policy.
+    /// @param preconditions 调用方观察到的节点身份与修订。 / Node identities and revisions observed by the caller.
+    /// @return 条件仍成立时返回类型化值，否则返回 `E_CONFLICT` 且整批不执行。 / Typed values when conditions still hold; otherwise `E_CONFLICT` with no batch execution.
+    pub fn eval_preconditioned(
+        &mut self,
+        source: &str,
+        policy: InvocationPolicy,
+        preconditions: &[NodePrecondition],
+    ) -> Result<Vec<Value>> {
+        crate::application::runtime::eval(self, source, policy, None, preconditions)
     }
 
     /// @brief 使用显式文本提供者执行源码。 / Evaluate source with an explicit text provider.
@@ -129,7 +194,23 @@ impl Promptr {
         policy: InvocationPolicy,
         provider: &mut dyn TextProvider,
     ) -> Result<Vec<Value>> {
-        crate::application::runtime::eval(self, source, policy, Some(provider))
+        self.eval_with_provider_preconditioned(source, policy, provider, &[])
+    }
+
+    /// @brief 使用文本提供者并在节点修订前置条件下执行源码。 / Evaluate source with a text provider under node revision preconditions.
+    /// @param source DSL 源码。 / DSL source.
+    /// @param policy 调用能力策略。 / Invocation capability policy.
+    /// @param provider 不持有存储引用的文本提供者。 / Text provider that owns no store reference.
+    /// @param preconditions 调用方观察到的节点身份与修订。 / Node identities and revisions observed by the caller.
+    /// @return 条件仍成立时返回提交后可发布的值，否则返回 `E_CONFLICT` 且整批不执行。 / Values publishable after commit when conditions still hold; otherwise `E_CONFLICT` with no batch execution.
+    pub fn eval_with_provider_preconditioned(
+        &mut self,
+        source: &str,
+        policy: InvocationPolicy,
+        provider: &mut dyn TextProvider,
+        preconditions: &[NodePrecondition],
+    ) -> Result<Vec<Value>> {
+        crate::application::runtime::eval(self, source, policy, Some(provider), preconditions)
     }
 
     /// @brief 解析并按当前目录快照检查源码但不执行。 / Parse and check source against the current catalog snapshot without executing it.
@@ -201,5 +282,34 @@ mod tests {
 
         assert_eq!(app.config().database.path, configured);
         assert!(configured.exists());
+    }
+
+    #[test]
+    fn operational_open_rejects_a_newer_schema_before_exposing_the_facade() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("future.sqlite");
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA application_id={}; PRAGMA user_version={};",
+                crate::infrastructure::sqlite::APPLICATION_ID,
+                crate::infrastructure::sqlite::SCHEMA_VERSION + 1
+            ))
+            .unwrap();
+        drop(connection);
+
+        let error = match Promptr::open(PromptrOptions {
+            database_path: Some(path.clone()),
+            config: config(directory.path()),
+        }) {
+            Ok(_) => panic!("newer schema unexpectedly produced an operational facade"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.code, "E_SCHEMA_NEW");
+        assert!(error.message.contains(&path.display().to_string()));
+        assert!(error.message.contains("found=2"));
+        assert!(error.message.contains("max=1"));
+        assert!(error.message.contains(env!("CARGO_PKG_VERSION")));
     }
 }

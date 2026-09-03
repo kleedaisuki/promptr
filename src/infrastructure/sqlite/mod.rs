@@ -248,6 +248,14 @@ impl SqliteDatabase {
         })
     }
 
+    /// @brief 验证数据库可供正常业务读写。 / Validate that the database is usable for operational reads and writes.
+    /// @return 兼容时成功，否则返回包含版本上下文的诊断。 / Success when compatible, otherwise a diagnostic with version context.
+    /// @note 状态检查与维护命令可先打开更新版本数据库；正常应用入口必须在暴露门面前调用本方法。 / Status and maintenance commands may inspect a newer database; normal application entry points must call this before exposing the facade.
+    pub fn validate_operational(&self) -> Result<()> {
+        let conn = self.lock()?;
+        validate_normal(&conn)
+    }
+
     /// @brief 读取跨连接的目录修订号。 / Read the cross-connection catalog revision.
     /// @return 单调目录修订号或诊断。 / Monotonic catalog revision or diagnostic.
     pub fn catalog_revision(&self) -> Result<u64> {
@@ -1120,28 +1128,45 @@ fn fts_matches_canonical(connection: &Connection) -> rusqlite::Result<bool> {
     if !table_exists_raw(connection, "node_fts")? {
         return Ok(false);
     }
-    type FtsRow = (String, String, String, String);
-    let expected = {
-        let mut statement = connection.prepare(
-            "SELECT CAST(n.id AS TEXT),n.symbol,COALESCE(f.text,''),COALESCE(n.description,'') || char(0) || COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id ORDER BY n.id",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-            })?
-            .collect::<rusqlite::Result<Vec<FtsRow>>>()?
-    };
-    let actual = {
-        let mut statement = connection.prepare(
-            "SELECT CAST(node_id AS TEXT),symbol,content,description || char(0) || tags FROM node_fts ORDER BY CAST(node_id AS INTEGER)",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-            })?
-            .collect::<rusqlite::Result<Vec<FtsRow>>>()?
-    };
-    Ok(actual == expected)
+    connection.query_row(
+        r#"
+        WITH canonical(node_id, symbol, content, description, tags) AS (
+          SELECT n.id,
+                 n.symbol,
+                 COALESCE(f.text, ''),
+                 COALESCE(n.description, ''),
+                 COALESCE((
+                   SELECT group_concat(tag, ' ')
+                   FROM (
+                     SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag
+                   )
+                 ), '')
+          FROM nodes n
+          LEFT JOIN fragments f ON f.node_id=n.id
+        )
+        SELECT
+          NOT EXISTS (
+            SELECT 1
+            FROM canonical c
+            LEFT JOIN node_fts x ON CAST(x.node_id AS INTEGER)=c.node_id
+            WHERE x.rowid IS NULL
+               OR CAST(x.node_id AS TEXT) IS NOT CAST(c.node_id AS TEXT)
+               OR x.symbol IS NOT c.symbol
+               OR x.content IS NOT c.content
+               OR x.description IS NOT c.description
+               OR x.tags IS NOT c.tags
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM node_fts x
+            LEFT JOIN nodes n ON n.id=CAST(x.node_id AS INTEGER)
+            WHERE n.id IS NULL
+          )
+          AND (SELECT count(*) FROM node_fts)=(SELECT count(*) FROM nodes)
+        "#,
+        [],
+        |row| row.get(0),
+    )
 }
 
 fn refresh_fts_node(connection: &Connection, node_id: i64) -> Result<()> {
@@ -1880,6 +1905,27 @@ mod tests {
             )
             .unwrap();
         assert_eq!(content, "canonical");
+    }
+
+    #[test]
+    fn fts_health_check_compares_large_rows_and_rejects_duplicate_rows() {
+        let mut database = SqliteDatabase::open_in_memory().unwrap();
+        let large = "x".repeat(2 * 1024 * 1024);
+        database
+            .write_transaction(&mut |writer| {
+                writer.upsert_fragment(&symbol("Leaf"), &text(&large), None)?;
+                Ok(vec![])
+            })
+            .unwrap();
+        let connection = database.lock().unwrap();
+        assert!(fts_matches_canonical(&connection).unwrap());
+        connection
+            .execute(
+                "INSERT INTO node_fts(node_id,symbol,content,description,tags) SELECT node_id,symbol,content,description,tags FROM node_fts WHERE symbol='Leaf'",
+                [],
+            )
+            .unwrap();
+        assert!(!fts_matches_canonical(&connection).unwrap());
     }
 
     #[test]

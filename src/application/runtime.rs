@@ -1,6 +1,6 @@
 //! 编译、准备、事务和解释的协调器。 / Coordinator for compile, prepare, transaction, and interpretation.
 
-use super::{InvocationPolicy, Promptr, SpillWriter, Value, ports::CatalogWrite};
+use super::{InvocationPolicy, NodePrecondition, Promptr, SpillWriter, Value, ports::CatalogWrite};
 use crate::{
     application::{CheckedProgram, NodeView, Op, command::NodeFilter},
     diagnostic::{Diagnostic, DiagnosticCategory, Result, SourceSpan},
@@ -122,15 +122,18 @@ pub(crate) fn check(
 /// @param source DSL 源码。 / DSL source.
 /// @param policy 调用能力策略。 / Invocation capability policy.
 /// @param provider 可选交互文本提供者。 / Optional interactive text provider.
+/// @param preconditions 调用方观察到的节点修订前置条件。 / Node revision preconditions observed by the caller.
 /// @return 提交后可发布的类型化值。 / Typed values publishable after commit.
 pub(crate) fn eval(
     app: &mut Promptr,
     source: &str,
     policy: InvocationPolicy,
     provider: Option<&mut dyn TextProvider>,
+    preconditions: &[NodePrecondition],
 ) -> Result<Vec<Value>> {
     let ast = parse_complete(source)?;
     let advisory_snapshot = app.database.snapshot()?;
+    validate_preconditions(&advisory_snapshot, preconditions)?;
     let checked = crate::language::compile(&ast, &advisory_snapshot, policy)?;
     let Some(prepared) = prepare_fragments(&checked, &advisory_snapshot, provider)? else {
         return Ok(Vec::new());
@@ -141,11 +144,51 @@ pub(crate) fn eval(
     }
     let mut operation = |transaction: &mut dyn CatalogWrite| {
         let authoritative = transaction.snapshot()?;
+        validate_preconditions(&authoritative, preconditions)?;
         let mut program = crate::language::compile(&ast, &authoritative, policy)?;
         inject_prepared(&mut program, &prepared, &authoritative)?;
         interpret_transaction(&program, transaction, &authoritative, search_settings)
     };
     app.database.write_transaction(&mut operation)
+}
+
+/// @brief 在单一一致快照上验证全部节点前置条件。 / Validate all node preconditions against one consistent snapshot.
+/// @param snapshot 读操作的一致快照或写事务中的权威快照。 / Consistent read snapshot or authoritative snapshot inside a write transaction.
+/// @param preconditions 调用方观察到的条件。 / Conditions observed by the caller.
+/// @return 全部匹配时成功，否则返回稳定的 `E_CONFLICT`。 / Success when all match, otherwise stable `E_CONFLICT`.
+fn validate_preconditions(
+    snapshot: &CatalogSnapshot,
+    preconditions: &[NodePrecondition],
+) -> Result<()> {
+    for condition in preconditions {
+        let actual = snapshot.get_by_symbol(condition.symbol());
+        if actual.is_some_and(|node| {
+            node.header.id == condition.node_id() && node.header.revision == condition.revision()
+        }) {
+            continue;
+        }
+        let actual_description = actual.map_or_else(
+            || "missing or renamed".to_owned(),
+            |node| {
+                format!(
+                    "node id {}, revision {}",
+                    node.header.id.get(),
+                    node.header.revision.get()
+                )
+            },
+        );
+        return Err(Diagnostic::error(
+            "E_CONFLICT",
+            DiagnosticCategory::Conflict,
+            format!(
+                "node `{}` changed (expected node id {}, revision {}; found {actual_description})",
+                condition.symbol(),
+                condition.node_id().get(),
+                condition.revision().get()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// @brief 把解析器状态稳定映射为公共诊断。 / Map parser states to stable public diagnostics.
@@ -231,7 +274,11 @@ fn prepare_fragments(
                 let EditorOutcome::Save(edit) = outcome else {
                     return Ok(None);
                 };
-                if edit.target != request.target {
+                let returned_identity_is_valid = matches!(
+                    (edit.target.node_id, edit.target.base_revision),
+                    (Some(_), Some(_)) | (None, None)
+                );
+                if !returned_identity_is_valid || edit.target.node_id != request.target.node_id {
                     return Err(Diagnostic::error(
                         "E_EDITOR_TARGET",
                         DiagnosticCategory::External,
@@ -242,13 +289,13 @@ fn prepare_fragments(
                 staged.insert(
                     target.clone(),
                     StagedFragment {
-                        target: request.target,
+                        target: edit.target,
                         text: text.as_str().to_owned(),
                     },
                 );
                 prepared.push(PreparedFragment {
                     target: target.clone(),
-                    edit_target: request.target,
+                    edit_target: edit.target,
                     text,
                 });
             }
@@ -749,6 +796,15 @@ mod tests {
         transactions: usize,
         fail_commit: bool,
         failed_spool: Option<PathBuf>,
+        before_transaction: Option<ConcurrentChange>,
+    }
+
+    /// @brief 模拟另一连接在建议快照之后提交的变化。 / Simulated change committed by another connection after the advisory snapshot.
+    enum ConcurrentChange {
+        /// @brief 推进指定节点修订号。 / Advance the named node revision.
+        Revise(Symbol),
+        /// @brief 改变指定节点的符号绑定。 / Change the named node's symbol binding.
+        Rename(Symbol, Symbol),
     }
     struct FakeDatabase(Rc<RefCell<Shared>>);
     struct FakeWrite {
@@ -765,7 +821,29 @@ mod tests {
             &mut self,
             operation: &mut dyn FnMut(&mut dyn CatalogWrite) -> Result<Vec<Value>>,
         ) -> Result<Vec<Value>> {
-            self.0.borrow_mut().transactions += 1;
+            {
+                let mut shared = self.0.borrow_mut();
+                shared.transactions += 1;
+                match shared.before_transaction.take() {
+                    Some(ConcurrentChange::Revise(symbol)) => {
+                        let node = shared
+                            .nodes
+                            .iter_mut()
+                            .find(|node| node.header.symbol == symbol)
+                            .expect("simulated concurrent target must exist");
+                        node.header.revision = node.header.revision.checked_next().unwrap();
+                    }
+                    Some(ConcurrentChange::Rename(from, to)) => {
+                        let node = shared
+                            .nodes
+                            .iter_mut()
+                            .find(|node| node.header.symbol == from)
+                            .expect("simulated concurrent target must exist");
+                        node.header.symbol = to;
+                    }
+                    None => {}
+                }
+            }
             let mut writer = FakeWrite {
                 nodes: self.0.borrow().nodes.clone(),
             };
@@ -872,6 +950,7 @@ mod tests {
             transactions: 0,
             fail_commit,
             failed_spool: None,
+            before_transaction: None,
         }));
         (
             Promptr::from_parts(Box::new(FakeDatabase(shared.clone())), config()),
@@ -909,6 +988,27 @@ mod tests {
                 request,
                 self.replacements.pop_front().unwrap(),
             )))
+        }
+    }
+
+    /// @brief 返回同一节点的旧修订身份。 / Return a stale revision identity for the same node.
+    struct StaleIdentityProvider {
+        revision: Revision,
+    }
+
+    impl TextProvider for StaleIdentityProvider {
+        fn edit(
+            &mut self,
+            request: EditRequest,
+        ) -> std::result::Result<EditorOutcome, EditorError> {
+            Ok(EditorOutcome::Save(PreparedEdit {
+                target: EditTarget {
+                    node_id: request.target.node_id,
+                    base_revision: Some(self.revision),
+                },
+                original_text: request.original_text,
+                edited_text: "draft".to_owned(),
+            }))
         }
     }
 
@@ -1000,6 +1100,117 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "E0201");
         assert_eq!((provider.calls, shared.borrow().transactions), (0, 0));
+    }
+
+    #[test]
+    fn stale_precondition_rejects_whole_batch_before_output_or_mutation() {
+        let leaf = fragment(1, "Leaf", "body");
+        let condition = NodePrecondition::new(
+            leaf.header.symbol.clone(),
+            leaf.header.id,
+            leaf.header.revision,
+        );
+        let (mut app, shared) = app(vec![leaf], false);
+        shared.borrow_mut().before_transaction =
+            Some(ConcurrentChange::Revise(Symbol::new("Leaf").unwrap()));
+
+        let error = app
+            .eval_preconditioned(
+                "OUTPUT Leaf; METADATA Leaf DESCRIPTION \"ours\";",
+                InvocationPolicy::script(),
+                &[condition],
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "E_CONFLICT");
+        let state = shared.borrow();
+        assert_eq!(state.transactions, 1);
+        assert_eq!(state.nodes[0].header.revision.get(), 2);
+        assert_eq!(state.nodes[0].header.metadata.description(), None);
+    }
+
+    #[test]
+    fn renamed_precondition_target_reports_conflict_before_authoritative_compile() {
+        let leaf = fragment(1, "Leaf", "body");
+        let condition = NodePrecondition::new(
+            leaf.header.symbol.clone(),
+            leaf.header.id,
+            leaf.header.revision,
+        );
+        let (mut app, shared) = app(vec![leaf], false);
+        shared.borrow_mut().before_transaction = Some(ConcurrentChange::Rename(
+            Symbol::new("Leaf").unwrap(),
+            Symbol::new("OtherName").unwrap(),
+        ));
+
+        let error = app
+            .eval_preconditioned(
+                "METADATA Leaf DESCRIPTION \"ours\";",
+                InvocationPolicy::script(),
+                &[condition],
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "E_CONFLICT");
+        let state = shared.borrow();
+        assert_eq!(state.nodes[0].header.symbol.as_str(), "OtherName");
+        assert_eq!(state.nodes[0].header.metadata.description(), None);
+    }
+
+    #[test]
+    fn unrelated_concurrent_change_does_not_reject_precondition() {
+        let leaf = fragment(1, "Leaf", "body");
+        let condition = NodePrecondition::new(
+            leaf.header.symbol.clone(),
+            leaf.header.id,
+            leaf.header.revision,
+        );
+        let (mut app, shared) = app(vec![leaf, fragment(2, "Other", "other")], false);
+        shared.borrow_mut().before_transaction =
+            Some(ConcurrentChange::Revise(Symbol::new("Other").unwrap()));
+
+        let values = app
+            .eval_preconditioned(
+                "METADATA Leaf DESCRIPTION \"ours\";",
+                InvocationPolicy::script(),
+                &[condition],
+            )
+            .unwrap();
+
+        assert!(!values.is_empty());
+        let state = shared.borrow();
+        let leaf = state
+            .nodes
+            .iter()
+            .find(|node| node.header.symbol.as_str() == "Leaf")
+            .unwrap();
+        let other = state
+            .nodes
+            .iter()
+            .find(|node| node.header.symbol.as_str() == "Other")
+            .unwrap();
+        assert_eq!(leaf.header.metadata.description(), Some("ours"));
+        assert_eq!(leaf.header.revision.get(), 2);
+        assert_eq!(other.header.revision.get(), 2);
+    }
+
+    #[test]
+    fn read_only_precondition_is_checked_on_its_consistent_snapshot() {
+        let leaf = fragment(1, "Leaf", "body");
+        let condition = NodePrecondition::new(
+            leaf.header.symbol.clone(),
+            leaf.header.id,
+            leaf.header.revision,
+        );
+        let (mut app, shared) = app(vec![leaf], false);
+        shared.borrow_mut().nodes[0].header.revision = Revision::new(2).unwrap();
+
+        let error = app
+            .eval_preconditioned("OUTPUT Leaf;", InvocationPolicy::script(), &[condition])
+            .unwrap_err();
+
+        assert_eq!(error.code, "E_CONFLICT");
+        assert_eq!(shared.borrow().transactions, 0);
     }
 
     #[test]
@@ -1141,6 +1352,27 @@ mod tests {
                 .code,
             "E_CONFLICT"
         );
+    }
+
+    #[test]
+    fn provider_may_return_stale_revision_for_same_node_and_gets_conflict() {
+        let mut leaf = fragment(1, "Leaf", "current");
+        leaf.header.revision = Revision::new(2).unwrap();
+        let (mut app, shared) = app(vec![leaf], false);
+        let mut provider = StaleIdentityProvider {
+            revision: Revision::new(1).unwrap(),
+        };
+
+        let error = app
+            .eval_with_provider(
+                "FRAGMENT Leaf;",
+                InvocationPolicy::interactive(),
+                &mut provider,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "E_CONFLICT");
+        assert_eq!(shared.borrow().nodes[0].header.revision.get(), 2);
     }
 
     #[test]
