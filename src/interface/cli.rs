@@ -794,17 +794,32 @@ fn run_doctor(
         SqliteDatabase::open_existing_with_options(path, sqlite_options(&loaded.config.database))
             .map_err(|error| (format, error))?;
     let status = database.status().map_err(|error| (format, error))?;
-    let check = database.check(false).map_err(|error| (format, error))?;
+    let check = if status.compatible {
+        Some(database.check(false).map_err(|error| (format, error))?)
+    } else {
+        None
+    };
+    let check_json = check.as_ref().map(|report| {
+        json!({
+            "integrity": report.integrity,
+            "foreign_key_violations": report.foreign_key_violations,
+            "domain_valid": report.domain_valid
+        })
+    });
+    let integrity = check
+        .as_ref()
+        .map(|report| report.integrity.join(", "))
+        .unwrap_or_else(|| "skipped (incompatible database)".to_owned());
     emit(
         stdout,
         format,
-        json!({"application_version": env!("CARGO_PKG_VERSION"), "config_schema": loaded.config.schema_version, "database": {"path": path, "schema": status.user_version, "compatible": status.compatible}, "check": {"integrity": check.integrity, "foreign_key_violations": check.foreign_key_violations, "domain_valid": check.domain_valid}, "config_warnings": loaded.diagnostics.iter().map(|item| item.to_string()).collect::<Vec<_>>() }),
+        json!({"application_version": env!("CARGO_PKG_VERSION"), "config_schema": loaded.config.schema_version, "database": {"path": path, "application_id": status.application_id, "schema": status.user_version, "compatible": status.compatible}, "check": check_json, "config_warnings": loaded.diagnostics.iter().map(|item| item.to_string()).collect::<Vec<_>>() }),
         &format!(
             "promptr {}; config schema {}; database schema {}; integrity {}",
             env!("CARGO_PKG_VERSION"),
             loaded.config.schema_version,
             status.user_version,
-            check.integrity.join(", ")
+            integrity
         ),
     )
 }
@@ -1217,5 +1232,42 @@ mod tests {
             assert_ne!(run(cli, &mut input, &mut stdout, &mut stderr), 0);
             assert!(!database.exists());
         }
+    }
+
+    #[test]
+    fn doctor_reports_a_newer_database_without_interpreting_its_schema() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("future.sqlite");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection
+            .pragma_update(
+                None,
+                "application_id",
+                crate::infrastructure::sqlite::APPLICATION_ID,
+            )
+            .unwrap();
+        connection
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
+        drop(connection);
+
+        let cli = Cli::try_parse_from([
+            "promptr",
+            "--no-config",
+            "--database",
+            database.to_str().unwrap(),
+            "--format",
+            "json",
+            "doctor",
+        ])
+        .unwrap();
+        let mut input = io::Cursor::new(Vec::<u8>::new());
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+
+        assert_eq!(run(cli, &mut input, &mut stdout, &mut stderr), 0);
+        assert!(stderr.is_empty());
+        let document: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(document["values"]["database"]["compatible"], false);
+        assert_eq!(document["values"]["check"], serde_json::Value::Null);
     }
 }

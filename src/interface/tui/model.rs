@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use ratatui_textarea::{CursorMove, Scrolling, TextArea};
 
 use crate::application::NodeView;
+use crate::infrastructure::editor::EditTarget;
 use crate::{application::CanonicalXml, diagnostic::Diagnostic};
 
 use super::{
@@ -73,6 +74,10 @@ pub struct Draft {
     pub original: String,
     /// 当前暂存文本。 / Current staged text.
     pub text: String,
+    /// 编辑开始时的持久化身份。 / Persistent identity captured when editing began.
+    pub target: Option<EditTarget>,
+    /// 编辑开始时的符号。 / Symbol captured when editing began.
+    pub symbol: Option<String>,
 }
 
 /// @brief 由 ratatui-textarea 驱动的拥有权编辑器状态。 / Owned editor state driven by ratatui-textarea.
@@ -157,7 +162,10 @@ pub enum PreviewPayload {
         preview: String,
         truncated: bool,
     },
-    Content(String),
+    Content {
+        text: String,
+        truncated: bool,
+    },
     Metadata(NodeView),
 }
 
@@ -176,13 +184,13 @@ pub enum Effect {
     /// 执行增量搜索。 / Execute an incremental search.
     Search(String),
     /// 保存 Fragment 草稿。 / Save a Fragment draft.
-    SaveFragment(String),
+    SaveFragment(Draft),
     /// 从共享运行时加载 Fragment 原文草稿。 / Load original Fragment text through the shared runtime.
     LoadFragmentDraft(String),
     /// 从共享运行时加载现有描述草稿。 / Load the existing description draft through the shared runtime.
     LoadMetadataDraft(String),
     /// 保存元数据草稿。 / Save a metadata draft.
-    SaveMetadata(String),
+    SaveMetadata(Draft),
     /// 删除当前符号。 / Delete the current symbol.
     Delete(String),
     /// 加载或刷新预览。 / Load or refresh a preview.
@@ -272,6 +280,8 @@ impl Model {
         self.draft = Some(Draft {
             original: original.clone(),
             text: text.clone(),
+            target: None,
+            symbol: None,
         });
         self.editor = (self.mode == Mode::FragmentEdit).then(|| EditorState::new(text));
     }
@@ -504,13 +514,13 @@ pub fn update(mut model: Model, action: UiAction) -> (Model, Vec<Effect>) {
             Mode::FragmentEdit => {
                 model.sync_draft();
                 if let Some(draft) = &model.draft {
-                    effects.push(Effect::SaveFragment(draft.text.clone()));
+                    effects.push(Effect::SaveFragment(draft.clone()));
                     model.mode = Mode::Browse;
                 }
             }
             Mode::MetadataEdit => {
                 if let Some(draft) = &model.draft {
-                    effects.push(Effect::SaveMetadata(draft.text.clone()));
+                    effects.push(Effect::SaveMetadata(draft.clone()));
                     model.mode = Mode::Browse;
                 }
             }
@@ -638,6 +648,7 @@ mod tests {
             draft: Some(Draft {
                 original: "old".into(),
                 text: "new".into(),
+                ..Default::default()
             }),
             ..Model::default()
         };

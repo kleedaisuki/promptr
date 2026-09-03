@@ -14,13 +14,14 @@ use ratatui::style::Color;
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::{
-    application::{InvocationPolicy, Promptr, Value},
+    application::{InvocationPolicy, NodePrecondition, Promptr, Value},
     diagnostic::{Diagnostic, DiagnosticCategory, Result},
     infrastructure::config::{
         ColorMode as ConfigColorMode, EditorMode, GlyphMode as ConfigGlyphMode,
     },
     infrastructure::editor::{
-        EditRequest, EditorError, EditorOutcome, ExternalTextProvider, PreparedEdit, TextProvider,
+        EditRequest, EditTarget, EditorError, EditorOutcome, ExternalTextProvider, PreparedEdit,
+        TextProvider,
     },
 };
 
@@ -35,9 +36,20 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeRequest {
     Eval(String),
-    LoadFragmentDraft { source: String, symbol: String },
+    LoadFragmentDraft {
+        source: String,
+        symbol: String,
+    },
     LoadMetadataDraft(String),
-    EditFragment { source: String, draft: String },
+    EditFragment {
+        source: String,
+        draft: super::model::Draft,
+    },
+    EditMetadata {
+        source: String,
+        target: crate::infrastructure::editor::EditTarget,
+        symbol: String,
+    },
     Exit,
 }
 
@@ -87,14 +99,17 @@ impl Clipboard for SystemClipboard {
 /// @param effect reducer 产生的效果。 / Effect produced by the reducer.
 /// @param selected 当前选中符号。 / Currently selected symbol.
 /// @return 请求；纯 UI 预览也统一落到 DSL eval。 / Request; UI projections also converge on DSL eval.
-pub fn runtime_request(effect: Effect, selected: Option<&str>) -> Option<RuntimeRequest> {
+pub fn runtime_request(effect: Effect, _selected: Option<&str>) -> Option<RuntimeRequest> {
     match effect {
         Effect::Execute(source) => Some(RuntimeRequest::Eval(source)),
         Effect::Search(query) => Some(RuntimeRequest::Eval(format!("SEARCH {};", quote(&query)))),
-        Effect::SaveFragment(draft) => selected.map(|symbol| RuntimeRequest::EditFragment {
-            source: format!("FRAGMENT {symbol};"),
-            draft,
-        }),
+        Effect::SaveFragment(draft) => {
+            let symbol = draft.symbol.clone()?;
+            Some(RuntimeRequest::EditFragment {
+                source: format!("FRAGMENT {symbol};"),
+                draft,
+            })
+        }
         Effect::LoadFragmentDraft(symbol) => Some(RuntimeRequest::LoadFragmentDraft {
             source: format!("PRINT {symbol}; OUTPUT {symbol};"),
             symbol,
@@ -102,9 +117,14 @@ pub fn runtime_request(effect: Effect, selected: Option<&str>) -> Option<Runtime
         Effect::LoadMetadataDraft(symbol) => Some(RuntimeRequest::LoadMetadataDraft(format!(
             "PRINT {symbol};"
         ))),
-        Effect::SaveMetadata(draft) => selected.map(|symbol| {
-            RuntimeRequest::Eval(format!("METADATA {symbol} DESCRIPTION {};", quote(&draft)))
-        }),
+        Effect::SaveMetadata(draft) => match (draft.symbol, draft.target) {
+            (Some(symbol), Some(target)) => Some(RuntimeRequest::EditMetadata {
+                source: format!("METADATA {symbol} DESCRIPTION {};", quote(&draft.text)),
+                target,
+                symbol,
+            }),
+            _ => None,
+        },
         Effect::Delete(symbol) => Some(RuntimeRequest::Eval(format!("DELETE {symbol};"))),
         Effect::LoadPreview { symbol, tab } => Some(RuntimeRequest::Eval(match tab {
             PreviewTab::Xml | PreviewTab::Content => format!("PRINT {symbol}; OUTPUT {symbol};"),
@@ -133,12 +153,12 @@ fn quote(value: &str) -> String {
     output
 }
 
-struct OneShotProvider(Option<String>);
+struct OneShotProvider(Option<PreparedEdit>);
 
 impl TextProvider for OneShotProvider {
-    fn edit(&mut self, request: EditRequest) -> std::result::Result<EditorOutcome, EditorError> {
+    fn edit(&mut self, _request: EditRequest) -> std::result::Result<EditorOutcome, EditorError> {
         Ok(match self.0.take() {
-            Some(text) => EditorOutcome::Save(PreparedEdit::from_request(request, text)),
+            Some(edit) => EditorOutcome::Save(edit),
             None => EditorOutcome::Cancel,
         })
     }
@@ -177,21 +197,20 @@ impl<O: TerminalOps, P: TextProvider> TextProvider for SuspendedProvider<'_, O, 
 
 struct DraftSeedProvider<P> {
     provider: P,
-    draft: Option<String>,
+    request: Option<EditRequest>,
+    original_text: String,
 }
 
 impl<P: TextProvider> TextProvider for DraftSeedProvider<P> {
     fn edit(&mut self, request: EditRequest) -> std::result::Result<EditorOutcome, EditorError> {
-        let original_request = request.clone();
-        let seeded = EditRequest {
-            target: request.target,
-            original_text: self.draft.take().unwrap_or(request.original_text),
-        };
+        let seeded = self.request.take().unwrap_or(request);
+        let original_request = seeded.clone();
         Ok(match self.provider.edit(seeded)? {
-            EditorOutcome::Save(edit) => EditorOutcome::Save(PreparedEdit::from_request(
-                original_request,
-                edit.edited_text,
-            )),
+            EditorOutcome::Save(edit) => EditorOutcome::Save(PreparedEdit {
+                target: original_request.target,
+                original_text: self.original_text.clone(),
+                edited_text: edit.edited_text,
+            }),
             EditorOutcome::Cancel => EditorOutcome::Cancel,
         })
     }
@@ -256,11 +275,11 @@ pub fn run(app: &mut Promptr) -> Result<()> {
         model = next;
         for effect in effects {
             let failed_draft = match &effect {
-                Effect::SaveFragment(draft) => Some(draft.clone()),
+                Effect::SaveFragment(draft) => Some(draft.text.clone()),
                 _ => None,
             };
             let failed_metadata = match &effect {
-                Effect::SaveMetadata(draft) => Some(draft.clone()),
+                Effect::SaveMetadata(draft) => Some(draft.text.clone()),
                 _ => None,
             };
             let preview_effect = matches!(effect, Effect::LoadPreview { .. });
@@ -406,9 +425,9 @@ fn execute_effect<O: TerminalOps>(
         return Ok(());
     };
     let saves_fragment = matches!(request, RuntimeRequest::EditFragment { .. });
-    let saves_metadata = matches!(&request, RuntimeRequest::Eval(source) if source.trim_start().starts_with("METADATA "));
+    let saves_metadata = matches!(&request, RuntimeRequest::EditMetadata { .. });
     let refresh_catalog = match &request {
-        RuntimeRequest::EditFragment { .. } => true,
+        RuntimeRequest::EditFragment { .. } | RuntimeRequest::EditMetadata { .. } => true,
         RuntimeRequest::Eval(source) => {
             let source = source.trim_start();
             !source.starts_with("SEARCH ")
@@ -419,13 +438,49 @@ fn execute_effect<O: TerminalOps>(
         | RuntimeRequest::LoadMetadataDraft(_)
         | RuntimeRequest::Exit => false,
     };
+    let preferred_selection = mutation_selection_hint(&request, model.selected_symbol());
     let values = match request {
         RuntimeRequest::Eval(source) => app.eval(&source, InvocationPolicy::interactive())?,
         RuntimeRequest::EditFragment { source, draft } => {
+            let target = draft.target.ok_or_else(|| {
+                Diagnostic::error(
+                    "E_TUI_EDIT_TARGET",
+                    DiagnosticCategory::Internal,
+                    "fragment draft has no captured edit identity",
+                )
+            })?;
+            let node_id = target
+                .node_id
+                .ok_or_else(|| missing_edit_identity("fragment"))?;
+            let base_revision = target
+                .base_revision
+                .ok_or_else(|| missing_edit_identity("fragment"))?;
+            let captured = EditRequest {
+                target,
+                original_text: draft.original.clone(),
+            };
+            let symbol = crate::domain::Symbol::new(draft.symbol.clone().unwrap_or_default())
+                .map_err(|error| {
+                    Diagnostic::error(
+                        "E_TUI_EDIT_TARGET",
+                        DiagnosticCategory::Internal,
+                        "fragment draft has an invalid captured symbol",
+                    )
+                    .with_cause(error.to_string())
+                })?;
+            let precondition = NodePrecondition::new(symbol, node_id, base_revision);
             let values = match provider_route(app.config().editor.mode) {
                 ProviderRoute::Builtin => {
-                    let mut provider = OneShotProvider(Some(draft.clone()));
-                    app.eval_with_provider(&source, InvocationPolicy::interactive(), &mut provider)?
+                    let mut provider = OneShotProvider(Some(PreparedEdit::from_request(
+                        captured,
+                        draft.text.clone(),
+                    )));
+                    app.eval_with_provider_preconditioned(
+                        &source,
+                        InvocationPolicy::interactive(),
+                        &mut provider,
+                        std::slice::from_ref(&precondition),
+                    )?
                 }
                 ProviderRoute::External => {
                     let argv = app.config().editor.external.clone().ok_or_else(|| {
@@ -438,21 +493,54 @@ fn execute_effect<O: TerminalOps>(
                     let provider = ExternalTextProvider::new(argv).map_err(editor_diagnostic)?;
                     let seeded = DraftSeedProvider {
                         provider,
-                        draft: Some(draft.clone()),
+                        request: Some(EditRequest {
+                            target,
+                            original_text: draft.text.clone(),
+                        }),
+                        original_text: draft.original.clone(),
                     };
                     let mut provider = SuspendedProvider {
                         session,
                         provider: seeded,
                     };
-                    app.eval_with_provider(&source, InvocationPolicy::interactive(), &mut provider)?
+                    app.eval_with_provider_preconditioned(
+                        &source,
+                        InvocationPolicy::interactive(),
+                        &mut provider,
+                        &[precondition],
+                    )?
                 }
             };
             if values.is_empty() {
-                restore_fragment_draft(model, draft);
+                restore_fragment_draft(model, draft.text);
                 model.notice = Some("editor canceled; draft preserved".into());
                 return Ok(());
             }
             values
+        }
+        RuntimeRequest::EditMetadata {
+            source,
+            target,
+            symbol,
+        } => {
+            let symbol = crate::domain::Symbol::new(symbol).map_err(|error| {
+                Diagnostic::error(
+                    "E_TUI_EDIT_TARGET",
+                    DiagnosticCategory::Internal,
+                    "metadata draft has an invalid captured symbol",
+                )
+                .with_cause(error.to_string())
+            })?;
+            let precondition = NodePrecondition::new(
+                symbol,
+                target
+                    .node_id
+                    .ok_or_else(|| missing_edit_identity("metadata"))?,
+                target
+                    .base_revision
+                    .ok_or_else(|| missing_edit_identity("metadata"))?,
+            );
+            app.eval_preconditioned(&source, InvocationPolicy::interactive(), &[precondition])?
         }
         RuntimeRequest::LoadFragmentDraft { source, symbol } => {
             let values = app.eval(&source, InvocationPolicy::interactive())?;
@@ -461,10 +549,10 @@ fn execute_effect<O: TerminalOps>(
         }
         RuntimeRequest::LoadMetadataDraft(source) => {
             let values = app.eval(&source, InvocationPolicy::interactive())?;
-            let description = values
+            let node = values
                 .iter()
                 .find_map(|value| match value {
-                    Value::Node(node) => Some(node.metadata.description().unwrap_or_default()),
+                    Value::Node(node) => Some(node),
                     _ => None,
                 })
                 .ok_or_else(|| {
@@ -474,7 +562,15 @@ fn execute_effect<O: TerminalOps>(
                         "metadata draft query returned no node",
                     )
                 })?;
+            let description = node.metadata.description().unwrap_or_default();
             model.set_draft(description.to_owned(), description.to_owned());
+            if let Some(draft) = &mut model.draft {
+                draft.target = Some(EditTarget {
+                    node_id: Some(node.id),
+                    base_revision: Some(node.revision),
+                });
+                draft.symbol = Some(node.symbol.to_string());
+            }
             return Ok(());
         }
         RuntimeRequest::Exit => return Ok(()),
@@ -490,10 +586,61 @@ fn execute_effect<O: TerminalOps>(
     }
     // 成功 mutation 后重读目录，保留符号选择而不是假设旧索引仍有效。
     if refresh_catalog && !model.should_quit {
-        let values = app.eval("LIST;", InvocationPolicy::interactive())?;
-        apply_catalog_values(model, &values);
+        refresh_catalog_and_preview(app, model, preferred_selection.as_deref())?;
     }
     Ok(())
+}
+
+fn missing_edit_identity(kind: &str) -> Diagnostic {
+    Diagnostic::error(
+        "E_TUI_EDIT_TARGET",
+        DiagnosticCategory::Internal,
+        format!("{kind} draft has an incomplete captured edit identity"),
+    )
+}
+
+fn refresh_catalog_and_preview(
+    app: &mut Promptr,
+    model: &mut Model,
+    preferred_selection: Option<&str>,
+) -> Result<()> {
+    let values = app.eval("LIST;", InvocationPolicy::interactive())?;
+    apply_catalog_values_preferred(model, &values, preferred_selection);
+    if let Some(symbol) = model.selected_symbol().map(str::to_owned) {
+        let values = app.eval(
+            &preview_source(&symbol, model.preview_tab),
+            InvocationPolicy::interactive(),
+        )?;
+        apply_preview_values(model, values)?;
+    } else {
+        model.preview = None;
+        model.preview_diagnostic = None;
+    }
+    model.change_token = app.change_token()?;
+    Ok(())
+}
+
+fn mutation_selection_hint(request: &RuntimeRequest, selected: Option<&str>) -> Option<String> {
+    match request {
+        RuntimeRequest::EditFragment { draft, .. } => draft.symbol.clone(),
+        RuntimeRequest::EditMetadata { symbol, .. } => Some(symbol.clone()),
+        RuntimeRequest::Eval(source) => {
+            let tokens = source
+                .trim_end_matches(|character: char| character == ';' || character.is_whitespace())
+                .split_whitespace()
+                .collect::<Vec<_>>();
+            if tokens.len() == 4
+                && tokens[0].eq_ignore_ascii_case("RENAME")
+                && tokens[2].eq_ignore_ascii_case("TO")
+                && selected == Some(tokens[1])
+            {
+                Some(tokens[3].to_owned())
+            } else {
+                selected.map(str::to_owned)
+            }
+        }
+        _ => selected.map(str::to_owned),
+    }
 }
 
 /// @brief 仅在变化令牌改变时刷新目录与当前预览。 / Refresh catalog and current preview only when the change token changes.
@@ -505,17 +652,7 @@ fn refresh_if_changed(app: &mut Promptr, model: &mut Model) -> Result<()> {
     if !changed {
         return Ok(());
     }
-    apply_catalog_values(model, &app.eval("LIST;", InvocationPolicy::interactive())?);
-    if let Some(symbol) = model.selected_symbol().map(str::to_owned) {
-        let values = app.eval(
-            &preview_source(&symbol, model.preview_tab),
-            InvocationPolicy::interactive(),
-        )?;
-        apply_preview_values(model, values)?;
-    } else {
-        model.preview = None;
-        model.preview_diagnostic = None;
-    }
+    refresh_catalog_and_preview(app, model, None)?;
     model.notice = Some("catalog refreshed after an external commit".into());
     Ok(())
 }
@@ -541,10 +678,11 @@ fn copy_xml(xml: &crate::application::CanonicalXml, clipboard: &mut dyn Clipboar
 }
 
 fn load_fragment_draft(model: &mut Model, symbol: &str, values: &[Value]) -> Result<()> {
-    let is_fragment = values.iter().any(
-        |value| matches!(value, Value::Node(node) if node.kind == crate::domain::NodeKind::Fragment),
-    );
-    if !is_fragment {
+    let node = values.iter().find_map(|value| match value {
+        Value::Node(node) if node.kind == crate::domain::NodeKind::Fragment => Some(node),
+        _ => None,
+    });
+    let Some(node) = node else {
         model.mode = super::Mode::Browse;
         model.draft = None;
         return Err(Diagnostic::error(
@@ -552,7 +690,7 @@ fn load_fragment_draft(model: &mut Model, symbol: &str, values: &[Value]) -> Res
             DiagnosticCategory::Domain,
             format!("`{symbol}` is not a fragment"),
         ));
-    }
+    };
     let xml = values
         .iter()
         .find_map(|value| match value {
@@ -592,6 +730,13 @@ fn load_fragment_draft(model: &mut Model, symbol: &str, values: &[Value]) -> Res
         .replace("&gt;", ">")
         .replace("&amp;", "&");
     model.set_draft(text.clone(), text);
+    if let Some(draft) = &mut model.draft {
+        draft.target = Some(EditTarget {
+            node_id: Some(node.id),
+            base_revision: Some(node.revision),
+        });
+        draft.symbol = Some(node.symbol.to_string());
+    }
     Ok(())
 }
 
@@ -636,6 +781,11 @@ fn xml_notice(xml: &crate::application::CanonicalXml) -> String {
 }
 
 fn apply_catalog_values(model: &mut Model, values: &[Value]) {
+    let selected = model.selected_symbol().map(str::to_owned);
+    apply_catalog_values_preferred(model, values, selected.as_deref());
+}
+
+fn apply_catalog_values_preferred(model: &mut Model, values: &[Value], preferred: Option<&str>) {
     let Some(nodes) = values.iter().rev().find_map(|value| {
         if let Value::Nodes(nodes) = value {
             Some(nodes)
@@ -645,15 +795,14 @@ fn apply_catalog_values(model: &mut Model, values: &[Value]) {
     }) else {
         return;
     };
-    let selected = model.selected_symbol().map(str::to_owned);
     model.nodes = nodes.clone();
     model.catalog = nodes.iter().map(|node| node.symbol.to_string()).collect();
-    model.selected = selected
+    model.selected = preferred
         .and_then(|symbol| {
             model
                 .catalog
                 .iter()
-                .position(|candidate| candidate == &symbol)
+                .position(|candidate| candidate == symbol)
         })
         .or((!model.catalog.is_empty()).then_some(0));
     model.scroll = model.scroll.min(model.catalog.len().saturating_sub(1));
@@ -679,23 +828,23 @@ fn editor_diagnostic(error: EditorError) -> Diagnostic {
 
 fn restore_fragment_draft(model: &mut Model, text: String) {
     model.mode = super::Mode::FragmentEdit;
-    let original = model
-        .draft
-        .as_ref()
-        .map(|draft| draft.original.clone())
-        .unwrap_or_default();
-    model.set_draft(original, text);
+    let previous = model.draft.clone().unwrap_or_default();
+    model.set_draft(previous.original, text);
+    if let Some(draft) = &mut model.draft {
+        draft.target = previous.target;
+        draft.symbol = previous.symbol;
+    }
 }
 
 /// @brief 在保存失败后恢复元数据草稿。 / Restore a metadata draft after a failed save.
 fn restore_metadata_draft(model: &mut Model, text: String) {
     model.mode = super::Mode::MetadataEdit;
-    let original = model
-        .draft
-        .as_ref()
-        .map(|draft| draft.original.clone())
-        .unwrap_or_default();
-    model.set_draft(original, text);
+    let previous = model.draft.clone().unwrap_or_default();
+    model.set_draft(previous.original, text);
+    if let Some(draft) = &mut model.draft {
+        draft.target = previous.target;
+        draft.symbol = previous.symbol;
+    }
 }
 
 /// @brief 为预览投影生成只读 DSL。 / Build read-only DSL for a preview projection.
@@ -745,12 +894,14 @@ fn apply_preview_values(model: &mut Model, values: Vec<Value>) -> Result<()> {
                 _ => None,
             }),
         ) {
-            (Some(node), Some(xml)) if node.kind == crate::domain::NodeKind::Fragment => Some(
-                PreviewPayload::Content(fragment_text(node.symbol.as_str(), xml)?),
-            ),
-            (Some(_), _) => Some(PreviewPayload::Content(
-                "Prompt content is represented by its ordered children.".into(),
-            )),
+            (Some(node), Some(xml)) if node.kind == crate::domain::NodeKind::Fragment => {
+                let (text, truncated) = fragment_preview(node.symbol.as_str(), xml, 64 * 1024)?;
+                Some(PreviewPayload::Content { text, truncated })
+            }
+            (Some(_), _) => Some(PreviewPayload::Content {
+                text: "Prompt content is represented by its ordered children.".into(),
+                truncated: false,
+            }),
             _ => None,
         },
         PreviewTab::Metadata => node.map(PreviewPayload::Metadata),
@@ -759,31 +910,42 @@ fn apply_preview_values(model: &mut Model, values: Vec<Value>) -> Result<()> {
 }
 
 /// @brief 从单个 Fragment 规范 XML 恢复精确内容。 / Recover exact content from one Fragment canonical XML.
-fn fragment_text(symbol: &str, xml: &crate::application::CanonicalXml) -> Result<String> {
-    let xml = xml.read_to_string().map_err(|error| {
-        Diagnostic::error(
-            "E_TUI_VALUE",
-            DiagnosticCategory::External,
-            "fragment XML could not be read",
-        )
-        .with_cause(error.to_string())
-    })?;
+fn fragment_preview(
+    symbol: &str,
+    xml: &crate::application::CanonicalXml,
+    budget: usize,
+) -> Result<(String, bool)> {
     let prefix = format!("<{symbol}>");
-    let suffix = format!("</{symbol}>\n");
-    let encoded = xml
-        .strip_prefix(&prefix)
-        .and_then(|value| value.strip_suffix(&suffix))
-        .ok_or_else(|| {
+    let xml_prefix = xml
+        .preview(prefix.len().saturating_add(budget))
+        .map_err(|error| {
             Diagnostic::error(
                 "E_TUI_VALUE",
-                DiagnosticCategory::Internal,
-                "fragment XML did not match its selected symbol",
+                DiagnosticCategory::External,
+                "fragment XML preview could not be read",
             )
+            .with_cause(error.to_string())
         })?;
-    Ok(encoded
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&"))
+    let encoded = xml_prefix.strip_prefix(&prefix).ok_or_else(|| {
+        Diagnostic::error(
+            "E_TUI_VALUE",
+            DiagnosticCategory::Internal,
+            "fragment XML did not match its selected symbol",
+        )
+    })?;
+    let suffix = format!("</{symbol}>\n");
+    let (encoded, truncated) = if let Some(body) = encoded.strip_suffix(&suffix) {
+        (body, false)
+    } else {
+        (encoded, xml.len() > xml_prefix.len())
+    };
+    Ok((
+        encoded
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&"),
+        truncated,
+    ))
 }
 
 /// @brief 在视觉预算内展开命名 DAG 的出现树。 / Expand a named DAG as an occurrence tree within a visual budget.
@@ -825,6 +987,7 @@ fn tree_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
@@ -880,6 +1043,59 @@ mod tests {
         }
     }
 
+    fn test_app(path: &std::path::Path) -> Promptr {
+        let root = path.parent().unwrap();
+        let config = crate::infrastructure::config::Config::defaults(
+            &crate::infrastructure::config::ConfigPaths {
+                user_config: root.join("config.toml"),
+                database: path.to_owned(),
+                state_dir: root.join("state"),
+                cache_dir: root.join("cache"),
+                backup_dir: root.join("backup"),
+            },
+        );
+        Promptr::open(crate::application::PromptrOptions {
+            database_path: Some(path.to_owned()),
+            config,
+        })
+        .unwrap()
+    }
+
+    fn save_fragment(app: &mut Promptr, symbol: &str, text: &str) {
+        struct Provider(String);
+        impl TextProvider for Provider {
+            fn edit(
+                &mut self,
+                request: EditRequest,
+            ) -> std::result::Result<EditorOutcome, EditorError> {
+                Ok(EditorOutcome::Save(PreparedEdit::from_request(
+                    request,
+                    self.0.clone(),
+                )))
+            }
+        }
+        let mut provider = Provider(text.to_owned());
+        app.eval_with_provider(
+            &format!("FRAGMENT {symbol};"),
+            InvocationPolicy::interactive(),
+            &mut provider,
+        )
+        .unwrap();
+    }
+
+    fn test_host() -> (
+        TerminalSession<FakeOps>,
+        RecordingClipboard,
+        Arc<Mutex<TerminalCounts>>,
+    ) {
+        let counts = Arc::new(Mutex::new(TerminalCounts::default()));
+        (
+            TerminalSession::start(FakeOps(Arc::clone(&counts)), false).unwrap(),
+            RecordingClipboard::default(),
+            counts,
+        )
+    }
+
     #[test]
     fn effects_map_to_the_shared_dsl_path() {
         assert_eq!(
@@ -890,11 +1106,20 @@ mod tests {
             runtime_request(Effect::Delete("Leaf".into()), None),
             Some(RuntimeRequest::Eval("DELETE Leaf;".into()))
         );
+        let draft = super::super::model::Draft {
+            original: "old".into(),
+            text: "body".into(),
+            target: Some(EditTarget {
+                node_id: Some(crate::domain::NodeId::new(1).unwrap()),
+                base_revision: Some(crate::domain::Revision::new(2).unwrap()),
+            }),
+            symbol: Some("Leaf".into()),
+        };
         assert_eq!(
-            runtime_request(Effect::SaveFragment("body".into()), Some("Leaf")),
+            runtime_request(Effect::SaveFragment(draft.clone()), Some("ignored")),
             Some(RuntimeRequest::EditFragment {
                 source: "FRAGMENT Leaf;".into(),
-                draft: "body".into()
+                draft
             })
         );
     }
@@ -954,6 +1179,161 @@ mod tests {
     }
 
     #[test]
+    fn stale_fragment_and_metadata_drafts_conflict_across_connections() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.sqlite");
+        let mut first = test_app(&path);
+        let mut second = test_app(&path);
+        save_fragment(&mut first, "Leaf", "original");
+        let (mut session, mut clipboard, _) = test_host();
+
+        let mut fragment = Model {
+            catalog: vec!["Leaf".into()],
+            selected: Some(0),
+            ..Model::default()
+        };
+        execute_effect(
+            &mut first,
+            &mut fragment,
+            Effect::LoadFragmentDraft("Leaf".into()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap();
+        fragment.draft.as_mut().unwrap().text = "mine".into();
+        save_fragment(&mut second, "Leaf", "theirs");
+        let saved = fragment.draft.clone().unwrap();
+        let error = execute_effect(
+            &mut first,
+            &mut fragment,
+            Effect::SaveFragment(saved.clone()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E_CONFLICT");
+        restore_fragment_draft(&mut fragment, saved.text);
+        assert!(fragment.draft.as_ref().unwrap().is_dirty());
+        assert_eq!(fragment.draft.as_ref().unwrap().target, saved.target);
+
+        let mut metadata = Model {
+            catalog: vec!["Leaf".into()],
+            selected: Some(0),
+            ..Model::default()
+        };
+        execute_effect(
+            &mut first,
+            &mut metadata,
+            Effect::LoadMetadataDraft("Leaf".into()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap();
+        metadata.draft.as_mut().unwrap().text = "mine description".into();
+        second
+            .eval(
+                "METADATA Leaf DESCRIPTION \"theirs\";",
+                InvocationPolicy::interactive(),
+            )
+            .unwrap();
+        let saved = metadata.draft.clone().unwrap();
+        let error = execute_effect(
+            &mut first,
+            &mut metadata,
+            Effect::SaveMetadata(saved.clone()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "E_CONFLICT");
+        restore_metadata_draft(&mut metadata, saved.text);
+        assert!(metadata.draft.as_ref().unwrap().is_dirty());
+        assert_eq!(metadata.draft.as_ref().unwrap().target, saved.target);
+    }
+
+    #[test]
+    fn successful_local_mutation_refreshes_content_preview_immediately() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.sqlite");
+        let mut app = test_app(&path);
+        save_fragment(&mut app, "Leaf", "old");
+        let (mut session, mut clipboard, _) = test_host();
+        let mut model = Model {
+            preview_tab: PreviewTab::Content,
+            ..Model::default()
+        };
+        apply_catalog_values(
+            &mut model,
+            &app.eval("LIST;", InvocationPolicy::interactive()).unwrap(),
+        );
+        execute_effect(
+            &mut app,
+            &mut model,
+            Effect::LoadFragmentDraft("Leaf".into()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap();
+        let mut draft = model.draft.clone().unwrap();
+        draft.text = "new & visible".into();
+        execute_effect(
+            &mut app,
+            &mut model,
+            Effect::SaveFragment(draft),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap();
+        assert!(matches!(
+            model.preview,
+            Some(PreviewPayload::Content { ref text, truncated: false }) if text == "new & visible"
+        ));
+    }
+
+    #[test]
+    fn rename_selects_new_symbol_and_refreshes_preview() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.sqlite");
+        let mut app = test_app(&path);
+        save_fragment(&mut app, "Leaf", "body");
+        let (mut session, mut clipboard, _) = test_host();
+        let mut model = Model::default();
+        apply_catalog_values(
+            &mut model,
+            &app.eval("LIST;", InvocationPolicy::interactive()).unwrap(),
+        );
+        execute_effect(
+            &mut app,
+            &mut model,
+            Effect::Execute("RENAME Leaf TO Renamed;".into()),
+            &mut session,
+            &mut clipboard,
+        )
+        .unwrap();
+        assert_eq!(model.selected_symbol(), Some("Renamed"));
+        assert!(matches!(
+            model.preview,
+            Some(PreviewPayload::Tree(ref lines)) if lines.first().is_some_and(|line| line == "Renamed")
+        ));
+    }
+
+    #[test]
+    fn large_content_preview_reads_only_a_bounded_prefix() {
+        let mut writer = crate::application::SpillWriter::with_threshold(1);
+        writer.write_all(b"<Leaf>").unwrap();
+        for _ in 0..(17 * 1024) {
+            writer.write_all(&[b'x'; 1024]).unwrap();
+        }
+        writer.write_all(b"</Leaf>\n").unwrap();
+        let xml = writer.finish().unwrap();
+        assert!(xml.len() > 16 * 1024 * 1024);
+        let (text, truncated) = fragment_preview("Leaf", &xml, 64 * 1024).unwrap();
+        assert!(truncated);
+        assert!(text.len() <= 64 * 1024);
+        assert!(text.bytes().all(|byte| byte == b'x'));
+    }
+
+    #[test]
     fn occurrence_tree_is_bounded_and_preserves_duplicates() {
         use crate::{
             application::NodeView,
@@ -1001,6 +1381,7 @@ mod tests {
         fragment.draft = Some(super::super::model::Draft {
             original: "old".into(),
             text: "new".into(),
+            ..Default::default()
         });
         restore_fragment_draft(&mut fragment, "new".into());
         assert_eq!(fragment.mode, super::super::Mode::FragmentEdit);
@@ -1014,6 +1395,7 @@ mod tests {
         metadata.draft = Some(super::super::model::Draft {
             original: "before".into(),
             text: "after".into(),
+            ..Default::default()
         });
         restore_metadata_draft(&mut metadata, "after".into());
         assert_eq!(metadata.mode, super::super::Mode::MetadataEdit);

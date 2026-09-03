@@ -211,7 +211,13 @@ fn render_preview(
                         preview.clone()
                     }
                 }
-                Some(PreviewPayload::Content(text)) => text.clone(),
+                Some(PreviewPayload::Content { text, truncated }) => {
+                    if *truncated {
+                        format!("{text}\n… preview truncated")
+                    } else {
+                        text.clone()
+                    }
+                }
                 Some(PreviewPayload::Metadata(node)) => metadata_text(node),
                 None => model.selected_symbol().unwrap_or("No selection").to_owned(),
             };
