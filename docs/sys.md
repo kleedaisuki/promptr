@@ -3,6 +3,9 @@
 Status: Draft  
 Companion specification: `dsl.md`
 
+The reconciled v0.1 runtime decisions are recorded in
+[`adr/0001-runtime-semantics.md`](adr/0001-runtime-semantics.md).
+
 ## 1. Purpose
 
 Promptr is a small language runtime for a persistent named prompt DAG. The TUI,
@@ -49,8 +52,11 @@ terms.
    equivalent.
 8. **Readable files stay readable.** Hand-authored TOML is not silently
    reformatted, stripped of comments, or rewritten on ordinary startup.
-9. **Schema changes fail closed.** An older executable MUST refuse a newer
-   database or configuration schema rather than guessing.
+9. **Forward compatibility is explicit.** An older executable MUST refuse to
+   interpret a newer database or configuration schema rather than guess its
+   meaning. This is a compatibility invariant, paired with observable version
+   diagnostics and explicit upgrade/inspection commands—not a generalized
+   security or fail-closed policy.
 10. **Local-first, synchronous core.** Promptr uses a synchronous event and
     execution model. The domain core has no asynchronous runtime dependency.
 
@@ -59,11 +65,13 @@ terms.
 ```mermaid
 flowchart TD
     H["Hosts: TUI · REPL · run · eval · Rust API"] --> P["Parser"]
-    P --> C["Compiler"]
-    C --> Q["CheckedProgram"]
+    P --> C["Preliminary compiler"]
+    C --> Q["Preliminary CheckedProgram"]
     Q --> R["Preparation"]
     R --> X["Transaction Coordinator"]
-    X --> I["Interpreter"]
+    X --> A["Authoritative in-transaction compiler"]
+    A --> I["Interpreter"]
+    A --> S
     I --> S["StoreTxn / SQLite"]
     I --> V["Typed Values"]
     V --> O["Human · JSON · Raw · XML presenters"]
@@ -80,8 +88,9 @@ source
   -> semantic analysis against a catalog overlay
   -> capability validation
   -> prepare external inputs without a write lock
-  -> revalidate optimistic revisions
-  -> begin transaction
+  -> BEGIN IMMEDIATE
+  -> recompile and revalidate against the transaction snapshot
+  -> check optimistic revisions inside the transaction
   -> interpret
   -> commit
   -> publish buffered outputs
@@ -144,7 +153,11 @@ warnings, and diagnostics go to standard error.
 
 ### 5.1 Compiler boundary
 
-The compiler transforms `AST` into `CheckedProgram<Vec<Op>>`. It performs:
+The compiler transforms `AST` into `CheckedProgram<Vec<Op>>`. Before
+preparation this result is a preliminary plan used to validate capabilities and
+identify required external input. After `BEGIN IMMEDIATE`, the same AST plus
+prepared inputs MUST be compiled again against the transaction snapshot; that
+second result is authoritative for execution. Compilation performs:
 
 - name resolution;
 - node-kind checking;
@@ -201,9 +214,10 @@ Invocation policy checks effects before execution. `check` permits catalog
 reads only. Script and eval modes deny `INTERACTIVE`. The TUI permits all core
 effects.
 
-Shell escape is a REPL meta-action, not a domain operation. It is intentionally
-outside `CheckedProgram`, store transactions, script execution, and the Rust
-domain API. The shell itself is the correct script host for external commands.
+The `!` shell form is a REPL meta-action, not a domain operation. It is
+intentionally outside `CheckedProgram`, store transactions, script execution,
+and the Rust domain API. The shell itself is the correct script host for
+external commands.
 
 ### 5.4 Interpreter boundary
 
@@ -243,8 +257,13 @@ PreparedEdit {
 }
 ```
 
-On save, the transaction revalidates `base_revision`. If another process has
-changed the node, the save fails with `E_CONFLICT`; the UI offers:
+After preparation, the coordinator acquires the writer reservation with `BEGIN
+IMMEDIATE`. It then recompiles and revalidates the source against the
+transaction snapshot and checks `base_revision` before applying any operation.
+The write reservation remains held through interpretation and commit, so no
+other writer can invalidate those checks. If another process changed the node
+before the reservation was acquired, the save fails with `E_CONFLICT`; the UI
+offers:
 
 - reopen the latest value;
 - view a two-way diff;
@@ -268,6 +287,11 @@ script              -> one transaction
 Read-only statements use read transactions only when a stable multi-query
 snapshot is required. Write programs begin with `BEGIN IMMEDIATE` after all
 external input is prepared, so lock failure occurs before mutations begin.
+All name resolution, kind/reference/cycle validation, deletion preconditions,
+and optimistic node/catalog revision checks are then repeated inside that write
+transaction before the first mutation. Performing a revision check before
+`BEGIN IMMEDIATE` is only advisory and MUST NOT authorize a write, because that
+would leave a time-of-check/time-of-use (TOCTOU) window.
 
 ### 6.3 Transactional output
 
@@ -546,11 +570,18 @@ Config schema versions are monotonically increasing integers.
 On ordinary startup:
 
 1. parse the TOML losslessly;
-2. reject a schema newer than the executable;
+2. stop normal loading for a schema newer than the executable and report the
+   found and maximum supported versions plus an upgrade/inspection path;
 3. migrate older schemas in memory;
 4. validate the resulting typed config;
 5. warn that an explicit migration is available;
 6. do **not** rewrite the file.
+
+A newer configuration produces stable `E_CONFIG_SCHEMA_NEW` diagnostics with
+the config path, found schema version, maximum supported version, and
+application version. The diagnostic directs the operator to upgrade Promptr;
+`promptr config check PATH` and `promptr doctor` can report the version and
+source without constructing the normal typed runtime configuration.
 
 `promptr config migrate` performs a durable rewrite:
 
@@ -641,9 +672,14 @@ If `auto_migrate = false`, normal commands fail with a stable
 ### 9.4 Forward incompatibility
 
 If the database schema is newer than the executable, normal read and write
-operations both fail. Read-only compatibility is not assumed merely because
-some known tables remain queryable. `promptr doctor` reports header and schema
-information without constructing the domain store.
+operations both stop with stable `E_SCHEMA_NEW` diagnostics containing the
+database path, found schema version, maximum supported version, and the
+application version. Read-only compatibility is not assumed merely because
+some known tables remain queryable: guessing would violate the persisted-format
+compatibility invariant. The diagnostic directs the operator to upgrade
+Promptr; `promptr db status` and `promptr doctor` remain available to inspect
+header/schema information without constructing the domain store. This narrow
+rule does not imply a general policy of rejecting recoverable runtime states.
 
 ### 9.5 Maintenance commands
 
@@ -844,9 +880,9 @@ The external editor is a configured alternative to the built-in editor. Promptr:
 6. reads and validates the staging file;
 7. commits with the captured base revision.
 
-`$VISUAL` and `$EDITOR` are parsed through a documented platform argv policy;
-shell expansion is not implied. A configured argv array is preferred because it
-does not require quoting heuristics.
+External mode requires a configured argv array such as `external = ["nvim",
+"{file}"]`. Promptr launches that argv directly; it neither selects an editor
+from `$VISUAL`/`$EDITOR` nor implies shell expansion or quoting heuristics.
 
 ### 10.7 Preview quality and correctness
 
@@ -1044,7 +1080,8 @@ Config         MUST NOT be a global mutable singleton.
 
 | Failure | Required behavior |
 | --- | --- |
-| Parse/compile error | no write transaction; precise diagnostic |
+| Parse/preliminary compile error | no write transaction; precise diagnostic |
+| In-transaction recompile error | rollback without mutation; precise diagnostic |
 | Editor cancel/failure | discard staging; database unchanged |
 | Concurrent edit | reject stale save; preserve draft |
 | Busy database | bounded wait, then actionable retry diagnostic |
@@ -1054,7 +1091,7 @@ Config         MUST NOT be a global mutable singleton.
 | DB migration failure | rollback, retain consistent backup, refuse normal open |
 | Panic/signal in TUI | restore terminal before exit where process execution permits |
 | FTS corruption | canonical data remains readable; rebuild derived index |
-| Newer schema | fail closed with installed/required versions |
+| Newer schema | stop normal open; report found/supported versions and direct to upgrade, `db status`, and `doctor` |
 
 Promptr never automatically restores a backup after ambiguous storage failure;
 that decision is user-visible and destructive.
@@ -1136,7 +1173,8 @@ The following are design constraints, not suggestions:
 - one typed command path for every host;
 - whole-script validation and atomic execution;
 - output publication only after commit;
-- optimistic revision checks around long-lived edits;
+- after preparation, `BEGIN IMMEDIATE`, then authoritative in-transaction
+  recompilation, validation, and optimistic revision checks;
 - keyboard-complete UI with mouse parity;
 - semantic style tokens with Unicode, ASCII, and monochrome fallbacks;
 - safe forward database migrations with consistent backups;

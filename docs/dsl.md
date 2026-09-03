@@ -3,6 +3,9 @@
 Status: Draft  
 Version: 0.1
 
+Runtime decisions that resolve cross-document boundaries are recorded in
+[`adr/0001-runtime-semantics.md`](adr/0001-runtime-semantics.md).
+
 ## 1. Overview
 
 Promptr is a persistent manager for named prompt graphs. Its DSL creates text
@@ -155,8 +158,8 @@ OUTPUT Output;
 
 ### 4.3 String literals
 
-Search queries are double-quoted UTF-8 strings. Version 0.1 recognizes the
-following escapes:
+Search queries, descriptions, and tags use double-quoted UTF-8 string literals.
+Version 0.1 recognizes the following escapes:
 
 ```text
 \"  \\  \n  \r  \t
@@ -168,20 +171,24 @@ Other escape sequences are invalid.
 
 - Ordinary statements end with `;`.
 - Whitespace is insignificant outside string literals.
-- A shell escape begins with `!` and ends at the newline; it does not use `;`.
 - Version 0.1 defines no comment syntax.
+
+An interactive REPL may recognize a line beginning with `!` as a host
+meta-action before invoking the DSL parser. That line is not DSL source and is
+therefore not described by the lexical or grammar rules below.
 
 ## 5. Grammar
 
 The normative surface grammar is:
 
 ```ebnf
-input              = statement | shell_escape ;
+input              = statement ;
 
 statement          = fragment_statement
                    | prompt_statement
                    | rename_statement
                    | delete_statement
+                   | metadata_statement
                    | list_statement
                    | print_statement
                    | output_statement
@@ -195,6 +202,12 @@ prompt_statement   = symbol ":" "[" symbol
 
 rename_statement   = "RENAME" symbol "TO" symbol ";" ;
 delete_statement   = "DELETE" symbol ";" ;
+
+metadata_statement = "METADATA" symbol
+                     ( "DESCRIPTION" string
+                     | "TAGS" tag_list ) ";" ;
+
+tag_list           = "[" [ string { "," string } ] "]" ;
 
 list_statement     = "LIST"
                      [ "FRAGMENTS" | "PROMPTS" ] ";" ;
@@ -212,8 +225,6 @@ search_field       = "TITLE" | "CONTENT" | "MIXED" ;
 
 symbol             = letter_or_underscore
                      { letter | digit | "_" | "-" } ;
-
-shell_escape       = "!" shell_text newline ;
 
 letter_or_underscore = letter | "_" ;
 letter             = "A" ... "Z" | "a" ... "z" ;
@@ -245,7 +256,9 @@ A: [B, Inner];
 FRAGMENT <symbol>;
 ```
 
-`FRAGMENT` creates or edits a Fragment through the configured external editor.
+`FRAGMENT` creates or edits a Fragment through the configured editor provider.
+The built-in editor is the default. An external editor is an explicitly
+configured alternative.
 
 | Existing binding | Result |
 | --- | --- |
@@ -253,17 +266,13 @@ FRAGMENT <symbol>;
 | Fragment | Open its current content; replace the content after successful validation. |
 | Prompt | Fail with a node-kind error. |
 
-Editor integration follows this precedence:
-
-```text
-$VISUAL -> $EDITOR -> platform fallback editor
-```
-
-The current or empty value is written to a temporary staging file. If the
-editor exits unsuccessfully, the file cannot be read, the text is invalid, or
-validation fails, the database MUST remain unchanged. A successful edit is
-committed atomically; the implementation MUST NOT overwrite durable content in
-place before validation.
+The provider receives the current content, or an empty draft for a new
+Fragment, and returns either saved text or cancellation. An external provider
+uses a temporary staging file and configured argv. If editing is cancelled, an
+external editor exits unsuccessfully, the staging file cannot be read, the text
+is invalid, or validation fails, the database MUST remain unchanged. A
+successful edit is committed atomically; the implementation MUST NOT overwrite
+durable content in place before validation.
 
 Fragment content MAY be empty. It MUST be valid UTF-8 and contain only
 characters permitted in XML 1.0 text. Structural XML metacharacters are legal
@@ -306,7 +315,27 @@ It fails if `old` does not exist, `new` is invalid, or `new` is already bound.
 The operation is atomic. Since graph edges store NodeIds, a rename does not
 rewrite graph topology.
 
-### 6.4 `DELETE`
+### 6.4 `METADATA`
+
+```promptr
+METADATA <symbol> DESCRIPTION <string>;
+METADATA <symbol> TAGS [<string>, ...];
+```
+
+Both forms replace one complete user-metadata field on an existing Fragment or
+Prompt. They do not create nodes and do not change identity, graph edges, child
+ordering, or canonical XML bytes.
+
+- `DESCRIPTION` replaces the previous description. `""` clears it.
+- `TAGS` replaces the complete unordered tag set. `[]` clears it.
+- Tag spelling is preserved and tag identity is bytewise case-sensitive.
+- Empty or whitespace-only tags are invalid. Repeated equal tag strings denote
+  one set member and therefore do not create duplicate stored tags.
+
+Both statements compile to the same typed `SetMetadata` domain operation used
+by other frontends. The replacement and revision update are atomic.
+
+### 6.5 `DELETE`
 
 ```promptr
 DELETE <symbol>;
@@ -319,7 +348,7 @@ counts.
 
 Version 0.1 has no `FORCE` or `CASCADE` mode.
 
-### 6.5 `LIST`
+### 6.6 `LIST`
 
 ```promptr
 LIST;
@@ -334,7 +363,7 @@ LIST PROMPTS;
 Results MUST have a deterministic order. Version 0.1 orders them by Symbol
 using bytewise ascending order.
 
-### 6.6 `PRINT`
+### 6.7 `PRINT`
 
 ```promptr
 PRINT <symbol>;
@@ -358,7 +387,7 @@ Notice: Fragment
   preview: "Always preserve userspace compatibility..."
 ```
 
-### 6.7 `OUTPUT`
+### 6.8 `OUTPUT`
 
 ```promptr
 OUTPUT <symbol>;
@@ -409,7 +438,7 @@ the structural result is:
 <Coding><Notice>...</Notice><Comment>...</Comment><Others><Notice>...</Notice></Others></Coding>
 ```
 
-### 6.8 `SEARCH`
+### 6.9 `SEARCH`
 
 ```promptr
 SEARCH <string> [FROM TITLE | CONTENT | MIXED];
@@ -437,7 +466,7 @@ Search = Scope x Field x Matcher
 This permits future matchers such as `EXACT`, `FTS`, or `SEMANTIC` without
 changing the meaning of `FROM`.
 
-### 6.9 `FIND`
+### 6.10 `FIND`
 
 ```promptr
 FIND <string> ON <prompt> [FROM TITLE | CONTENT | MIXED];
@@ -459,20 +488,24 @@ A    2 occurrences
 An occurrence count counts paths in the fully expanded output tree, not merely
 distinct graph edges.
 
-### 6.10 Shell escape
+### 6.11 REPL shell meta-action (not DSL)
 
 ```text
 ! <shell command>
 ```
 
-Everything after `!` through the end of the line is opaque shell text. The DSL
-parser MUST NOT interpret semicolons, quotes, substitutions, or pipelines
-inside it.
+This syntax is recognized only by the interactive REPL host before DSL parsing.
+It is a REPL meta-action, not a statement in the Promptr grammar. Script,
+`eval`, `check`, and the Rust domain API MUST NOT recognize or execute it.
+
+Everything after `!` through the end of the line is opaque shell text. Because
+the line never reaches the DSL parser, semicolons, quotes, substitutions, and
+pipelines have no DSL meaning inside it.
 
 The command is executed by the configured platform shell. Promptr reports its
 exit status but does not infer or commit domain changes from shell execution.
-Shell escape is an explicitly unsafe local capability and SHOULD be visibly
-distinguished from ordinary DSL commands in the TUI.
+The REPL SHOULD visibly distinguish this external process action from ordinary
+DSL commands.
 
 ## 7. Persistence and transactions
 
@@ -486,9 +519,15 @@ Therefore version 0.1 has no `SAVE` or `DROP` commands:
 - `DROP` would either duplicate deletion or create a product-level anonymous
   node, violating the naming invariant.
 
-A mutation transaction includes all validation and all persistent changes
-needed for one statement. Errors MUST NOT expose a partially updated symbol
-table, node payload, or edge list.
+A mutation first prepares interactive or external input without holding a
+writer lock. It then starts `BEGIN IMMEDIATE` and, inside that transaction,
+recompiles and revalidates the command against the transaction snapshot,
+checks any captured node/catalog revision, applies all persistent changes, and
+commits. The in-transaction compile and revision check are authoritative: no
+mutation may rely only on validation performed before the write transaction.
+This ordering removes the time-of-check/time-of-use (TOCTOU) gap while keeping
+user think-time outside the writer lock. Errors MUST NOT expose a partially
+updated symbol table, node payload, metadata value, or edge list.
 
 SQLite is the recommended persistence implementation, with a logical schema
 equivalent to:
@@ -519,6 +558,7 @@ the implementation distinguishes:
 | Cycle detected | `A: [A];` or an indirect cycle |
 | Referenced node | `DELETE` targets a child of another Prompt |
 | Invalid Fragment text | Invalid UTF-8 or XML 1.0 character |
+| Invalid metadata | Empty/whitespace-only tag or unknown target |
 | Editor failure | Editor exits nonzero or staging content cannot be read |
 | Storage failure | The transaction cannot commit |
 
@@ -541,6 +581,9 @@ LIST FRAGMENTS;
 PRINT Coding;
 SEARCH "compatibility" FROM CONTENT;
 FIND "research" ON Coding FROM MIXED;
+
+METADATA Coding DESCRIPTION "Reusable coding prompt";
+METADATA Coding TAGS ["coding", "systems"];
 
 RENAME Comment TO Documentation;
 Coding: [Notice, Documentation, BestPractice];
@@ -570,10 +613,10 @@ The following are deliberately outside the language core:
 - anonymous composition;
 - `SAVE`, `DROP`, and unsaved working sets;
 - forced or cascading deletion;
-- embedded text editing;
 - import/export syntax;
 - persistent `OUTPUT` roots;
-- tags and arbitrary metadata;
+- arbitrary key-value metadata beyond `description` and `tags`;
+- shell execution in DSL scripts or `eval`;
 - semantic-search dependencies;
 - plugins and remote synchronization;
 - alternate rendering formats.
