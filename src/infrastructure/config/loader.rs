@@ -1,11 +1,12 @@
 //! 无损解析与分层加载 / Lossless parsing and layered loading.
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use toml_edit::{DocumentMut, Item};
+use toml_edit::{DocumentMut, InlineTable, Item, Value};
 
 use super::{
     ColorMode, Config, ConfigDiagnostic, ConfigOverlay, ConfigPaths, EditorMode, GlyphMode,
@@ -43,6 +44,8 @@ pub struct ParsedConfig {
     pub document: DocumentMut,
     /// @brief 版本化原始结构 / Versioned raw structure.
     pub raw: RawConfig,
+    /// @brief 文件中的原始模式版本 / Original schema version in the file.
+    pub input_schema_version: u32,
     /// @brief 未知键等结构诊断 / Structural diagnostics such as unknown keys.
     pub diagnostics: Vec<ConfigDiagnostic>,
 }
@@ -60,16 +63,47 @@ impl ParsedConfig {
                     .with_source(source.clone()),
             ]
         })?;
-        let raw = toml_edit::de::from_str::<RawConfig>(text).map_err(|error| {
-            vec![
-                ConfigDiagnostic::error("E_CONFIG_TYPE", error.to_string())
-                    .with_source(source.clone()),
-            ]
-        })?;
+        let input_schema_version = match document.get("schema_version") {
+            Some(item) => item
+                .as_integer()
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| {
+                    vec![
+                        ConfigDiagnostic::error(
+                            "E_CONFIG_TYPE",
+                            "schema_version must be a non-negative 32-bit integer",
+                        )
+                        .with_key("schema_version")
+                        .with_source(source.clone()),
+                    ]
+                })?,
+            None => super::CURRENT_SCHEMA_VERSION,
+        };
+        if input_schema_version > super::CURRENT_SCHEMA_VERSION {
+            return Err(RawConfig {
+                schema_version: Some(input_schema_version),
+                ..RawConfig::default()
+            }
+            .validate_at(&source)
+            .expect_err("newer schema is incompatible"));
+        }
+        let mut effective_document = document.clone();
+        if input_schema_version < super::CURRENT_SCHEMA_VERSION {
+            super::migration::upgrade_document(&mut effective_document, input_schema_version)?;
+        }
+        let raw = toml_edit::de::from_str::<RawConfig>(&effective_document.to_string()).map_err(
+            |error| {
+                vec![
+                    ConfigDiagnostic::error("E_CONFIG_TYPE", error.to_string())
+                        .with_source(source.clone()),
+                ]
+            },
+        )?;
         let diagnostics = unknown_key_diagnostics(&document, text, &source);
         Ok(Self {
             document,
             raw,
+            input_schema_version,
             diagnostics,
         })
     }
@@ -88,15 +122,26 @@ pub struct ConfigLayer {
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
     /// @brief 环境变量名值表 / Environment name-value map.
-    pub values: BTreeMap<String, String>,
+    pub values: BTreeMap<String, OsString>,
 }
 
 impl Environment {
     /// @brief 捕获当前进程环境 / Captures the current process environment.
     /// @return 可测试的环境快照 / Testable environment snapshot.
     pub fn current() -> Self {
+        const KNOWN: &[&str] = &[
+            "PROMPTR_CONFIG",
+            "PROMPTR_DATABASE",
+            "PROMPTR_COLOR",
+            "PROMPTR_GLYPHS",
+            "PROMPTR_EDITOR_MODE",
+            "PROMPTR_SEARCH_FIELD",
+        ];
         Self {
-            values: std::env::vars().collect(),
+            values: KNOWN
+                .iter()
+                .filter_map(|name| std::env::var_os(name).map(|value| ((*name).into(), value)))
+                .collect(),
         }
     }
 }
@@ -277,12 +322,9 @@ fn read_layer(
             .with_source(path.display().to_string()),
         ]
     })?;
-    let mut parsed = ParsedConfig::parse(&text, path.display().to_string())?;
+    let parsed = ParsedConfig::parse(&text, path.display().to_string())?;
     diagnostics.extend(parsed.diagnostics);
-    let input_version = parsed
-        .raw
-        .schema_version
-        .unwrap_or(super::CURRENT_SCHEMA_VERSION);
+    let input_version = parsed.input_schema_version;
     if input_version < super::CURRENT_SCHEMA_VERSION {
         diagnostics.push(
             ConfigDiagnostic::warning(
@@ -295,10 +337,8 @@ fn read_layer(
             )
             .with_suggestion("run `promptr config migrate` when convenient"),
         );
-        super::migration::upgrade_document(&mut parsed.document, input_version)?;
-        parsed = ParsedConfig::parse(&parsed.document.to_string(), path.display().to_string())?;
     }
-    let overlay = parsed.raw.validate()?;
+    let overlay = parsed.raw.validate_at(&path.display().to_string())?;
     Ok(ConfigLayer { source, overlay })
 }
 
@@ -307,51 +347,90 @@ fn environment_layers(
     diagnostics: &mut Vec<ConfigDiagnostic>,
 ) -> Vec<ConfigLayer> {
     let mut layers = Vec::new();
-    macro_rules! env_value {
-        ($name:literal, $field:ident, $parser:expr) => {
-            if let Some(value) = environment.values.get($name) {
-                match $parser(value) {
-                    Ok(parsed) => {
-                        let mut overlay = ConfigOverlay::default();
-                        overlay.$field = Some(parsed);
-                        layers.push(ConfigLayer {
-                            source: ConfigSource::Environment($name.into()),
-                            overlay,
-                        });
-                    }
-                    Err(expected) => diagnostics.push(
-                        ConfigDiagnostic::error(
-                            "E_CONFIG_ENV",
-                            format!(
-                                "{} has invalid value `{}`; expected {}",
-                                $name, value, expected
-                            ),
-                        )
-                        .with_source($name),
-                    ),
-                }
-            }
+    if let Some(value) = environment.values.get("PROMPTR_DATABASE") {
+        let overlay = ConfigOverlay {
+            database_path: Some(PathBuf::from(value)),
+            ..ConfigOverlay::default()
         };
+        layers.push(ConfigLayer {
+            source: ConfigSource::Environment("PROMPTR_DATABASE".into()),
+            overlay,
+        });
     }
-    env_value!("PROMPTR_DATABASE", database_path, |value: &String| Ok::<
-        _,
-        &'static str,
-    >(
-        PathBuf::from(value)
-    ));
-    env_value!("PROMPTR_COLOR", ui_color, |value: &String| parse_color(
-        value
-    ));
-    env_value!("PROMPTR_GLYPHS", ui_glyphs, |value: &String| parse_glyphs(
-        value
-    ));
-    env_value!("PROMPTR_EDITOR_MODE", editor_mode, |value: &String| {
-        parse_editor(value)
-    });
-    env_value!("PROMPTR_SEARCH_FIELD", search_field, |value: &String| {
-        parse_field(value)
-    });
+    add_enum_environment(
+        environment,
+        "PROMPTR_COLOR",
+        &mut layers,
+        diagnostics,
+        |text, overlay| overlay.ui_color = parse_color(text).ok(),
+    );
+    add_enum_environment(
+        environment,
+        "PROMPTR_GLYPHS",
+        &mut layers,
+        diagnostics,
+        |text, overlay| overlay.ui_glyphs = parse_glyphs(text).ok(),
+    );
+    add_enum_environment(
+        environment,
+        "PROMPTR_EDITOR_MODE",
+        &mut layers,
+        diagnostics,
+        |text, overlay| overlay.editor_mode = parse_editor(text).ok(),
+    );
+    add_enum_environment(
+        environment,
+        "PROMPTR_SEARCH_FIELD",
+        &mut layers,
+        diagnostics,
+        |text, overlay| overlay.search_field = parse_field(text).ok(),
+    );
     layers
+}
+
+fn add_enum_environment(
+    environment: &Environment,
+    name: &'static str,
+    layers: &mut Vec<ConfigLayer>,
+    diagnostics: &mut Vec<ConfigDiagnostic>,
+    assign: impl FnOnce(&str, &mut ConfigOverlay),
+) {
+    let Some(value) = environment.values.get(name) else {
+        return;
+    };
+    let Some(text) = value.to_str() else {
+        diagnostics.push(
+            ConfigDiagnostic::error(
+                "E_CONFIG_ENV_UNICODE",
+                format!("{name} must be valid Unicode because it selects an enum value"),
+            )
+            .with_source(name),
+        );
+        return;
+    };
+    let mut overlay = ConfigOverlay::default();
+    assign(text, &mut overlay);
+    let is_valid = match name {
+        "PROMPTR_COLOR" => parse_color(text).is_ok(),
+        "PROMPTR_GLYPHS" => parse_glyphs(text).is_ok(),
+        "PROMPTR_EDITOR_MODE" => parse_editor(text).is_ok(),
+        "PROMPTR_SEARCH_FIELD" => parse_field(text).is_ok(),
+        _ => false,
+    };
+    if is_valid {
+        layers.push(ConfigLayer {
+            source: ConfigSource::Environment(name.into()),
+            overlay,
+        });
+    } else {
+        diagnostics.push(
+            ConfigDiagnostic::error(
+                "E_CONFIG_ENV",
+                format!("{name} has invalid enum value `{text}`"),
+            )
+            .with_source(name),
+        );
+    }
 }
 
 fn parse_color(value: &str) -> Result<ColorMode, &'static str> {
@@ -722,22 +801,73 @@ fn inspect_table(
             ),
             ("themes", Item::Table(themes)) => {
                 for (name, value) in themes.iter() {
-                    if let Item::Table(theme) = value {
-                        inspect_table(
+                    match value {
+                        Item::Table(theme) => inspect_table(
                             theme,
                             &format!("themes.{name}"),
-                            &[
-                                "surface",
-                                "text",
-                                "muted",
-                                "selection",
-                                "fragment",
-                                "prompt",
-                                "tag",
-                                "success",
-                                "warning",
-                                "error",
-                            ],
+                            theme_keys(),
+                            text,
+                            source,
+                            diagnostics,
+                        ),
+                        Item::Value(Value::InlineTable(theme)) => inspect_inline(
+                            theme,
+                            &format!("themes.{name}"),
+                            theme_keys(),
+                            text,
+                            source,
+                            diagnostics,
+                        ),
+                        _ => {}
+                    }
+                }
+            }
+            ("ui", Item::Value(Value::InlineTable(child))) => inspect_inline(
+                child,
+                "ui",
+                &["color", "glyphs", "theme", "mouse", "preview"],
+                text,
+                source,
+                diagnostics,
+            ),
+            ("editor", Item::Value(Value::InlineTable(child))) => inspect_inline(
+                child,
+                "editor",
+                &["mode", "external"],
+                text,
+                source,
+                diagnostics,
+            ),
+            ("database", Item::Value(Value::InlineTable(child))) => inspect_inline(
+                child,
+                "database",
+                &[
+                    "path",
+                    "busy_timeout_ms",
+                    "auto_migrate",
+                    "backup_before_migrate",
+                    "backup_keep",
+                    "journal_mode",
+                ],
+                text,
+                source,
+                diagnostics,
+            ),
+            ("search", Item::Value(Value::InlineTable(child))) => inspect_inline(
+                child,
+                "search",
+                &["field", "matcher"],
+                text,
+                source,
+                diagnostics,
+            ),
+            ("themes", Item::Value(Value::InlineTable(themes))) => {
+                for (name, value) in themes.iter() {
+                    if let Value::InlineTable(theme) = value {
+                        inspect_inline(
+                            theme,
+                            &format!("themes.{name}"),
+                            theme_keys(),
                             text,
                             source,
                             diagnostics,
@@ -748,6 +878,57 @@ fn inspect_table(
             _ => {}
         }
     }
+}
+
+fn inspect_inline(
+    table: &InlineTable,
+    prefix: &str,
+    expected: &[&str],
+    text: &str,
+    source: &str,
+    diagnostics: &mut Vec<ConfigDiagnostic>,
+) {
+    for (key, value) in table.iter() {
+        if expected.contains(&key) {
+            continue;
+        }
+        let dotted = format!("{prefix}.{key}");
+        let line = value.span().map(|span| {
+            text[..span.start.min(text.len())]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1
+        });
+        let location = line
+            .map(|line| format!("{source}:{line}"))
+            .unwrap_or_else(|| source.into());
+        let mut diagnostic = ConfigDiagnostic::error(
+            "E_CONFIG_UNKNOWN_KEY",
+            format!("unknown configuration key `{dotted}`"),
+        )
+        .with_key(dotted)
+        .with_source(location);
+        if let Some(suggestion) = nearest(key, expected) {
+            diagnostic = diagnostic.with_suggestion(format!("did you mean `{suggestion}`?"));
+        }
+        diagnostics.push(diagnostic);
+    }
+}
+
+fn theme_keys() -> &'static [&'static str] {
+    &[
+        "surface",
+        "text",
+        "muted",
+        "selection",
+        "fragment",
+        "prompt",
+        "tag",
+        "success",
+        "warning",
+        "error",
+    ]
 }
 
 fn nearest<'a>(actual: &str, expected: &'a [&str]) -> Option<&'a str> {
@@ -778,6 +959,18 @@ fn edit_distance(left: &str, right: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn non_unicode_os_string() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(vec![0xff])
+    }
+
+    #[cfg(windows)]
+    fn non_unicode_os_string() -> OsString {
+        use std::os::windows::ffi::OsStringExt;
+        OsString::from_wide(&[0xd800])
+    }
 
     fn paths() -> ConfigPaths {
         ConfigPaths {
@@ -876,10 +1069,53 @@ mod tests {
 
     #[test]
     fn newer_schema_returns_compatibility_diagnostic() {
-        let parsed = ParsedConfig::parse("schema_version=99\n", "future.toml").unwrap();
-        let diagnostic = parsed.raw.validate().unwrap_err().remove(0);
-        assert_eq!(diagnostic.code, "E_CONFIG_NEWER");
-        assert!(diagnostic.message.contains("requires a newer Promptr"));
+        let diagnostic = ParsedConfig::parse(
+            "schema_version=99\n[ui]\ncolor='a-future-enum'\n",
+            "future.toml",
+        )
+        .unwrap_err()
+        .remove(0);
+        assert_eq!(diagnostic.code, "E_CONFIG_SCHEMA_NEW");
+        assert!(diagnostic.message.contains("found=99"));
+        assert!(diagnostic.message.contains("max_supported=1"));
+        assert!(diagnostic.message.contains("path=future.toml"));
+        assert!(diagnostic.message.contains("app_version="));
+    }
+
+    #[test]
+    fn inline_tables_receive_recursive_unknown_key_diagnostics() {
+        let theme = "{ surface='#000000', text='#ffffff', muted='#777777', selection='#111111', fragment='blue', prompt='magenta', tag='cyan', success='green', warning='yellow', error='red', warrning='red' }";
+        let source = format!(
+            "schema_version=1\nui={{ color='auto', colr='auto' }}\nthemes={{ moe={theme} }}\n"
+        );
+        let parsed = ParsedConfig::parse(&source, "inline.toml").unwrap();
+        let keys = parsed
+            .diagnostics
+            .iter()
+            .filter_map(|value| value.key.as_deref())
+            .collect::<Vec<_>>();
+        assert!(keys.contains(&"ui.colr"));
+        assert!(keys.contains(&"themes.moe.warrning"));
+    }
+
+    #[test]
+    fn environment_preserves_non_unicode_paths_and_diagnoses_enum_values() {
+        let path = non_unicode_os_string();
+        let mut environment = Environment::default();
+        environment
+            .values
+            .insert("PROMPTR_DATABASE".into(), path.clone());
+        environment
+            .values
+            .insert("PROMPTR_COLOR".into(), non_unicode_os_string());
+        let mut diagnostics = Vec::new();
+        let layers = environment_layers(&environment, &mut diagnostics);
+        assert_eq!(layers[0].overlay.database_path, Some(PathBuf::from(path)));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|value| value.code == "E_CONFIG_ENV_UNICODE")
+        );
     }
 
     #[test]

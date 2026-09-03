@@ -1,12 +1,12 @@
 //! 编译、准备、事务和解释的协调器。 / Coordinator for compile, prepare, transaction, and interpretation.
 
-use super::{InvocationPolicy, Promptr, Value, ports::CatalogWrite};
+use super::{InvocationPolicy, Promptr, SpillWriter, Value, ports::CatalogWrite};
 use crate::{
     application::{CheckedProgram, NodeView, Op, command::NodeFilter},
     diagnostic::{Diagnostic, DiagnosticCategory, Result, SourceSpan},
     domain::{
-        CatalogSnapshot, Metadata, Node, NodeBody, NodeKind, SearchField, SearchHit, Symbol, Tag,
-        XmlText,
+        CatalogSnapshot, DomainError, Metadata, Node, NodeBody, NodeKind, SearchField, SearchHit,
+        Symbol, Tag, XmlText,
     },
     infrastructure::editor::{EditRequest, EditTarget, EditorOutcome, TextProvider},
     language::{ParseOutcome, Program, parse},
@@ -15,15 +15,22 @@ use nucleo_matcher::{Config as MatcherConfig, Matcher, Utf32Str};
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
+/// @brief 已准备正文及其锁外身份。 / Prepared body and its identity captured outside the writer lock.
 struct PreparedFragment {
+    /// @brief 该操作在源码位置上的目标符号。 / Target symbol at this operation's source position.
     target: Symbol,
+    /// @brief 编辑开始时的稳定节点身份。 / Stable node identity at edit start.
     edit_target: EditTarget,
+    /// @brief 已验证正文。 / Validated body.
     text: XmlText,
 }
 
 #[derive(Clone)]
+/// @brief 准备阶段的顺序片段覆盖项。 / Sequential fragment-overlay entry during preparation.
 struct StagedFragment {
+    /// @brief 首次持久化来源身份。 / Identity of the original durable source.
     target: EditTarget,
+    /// @brief 前序编辑产生的当前草稿。 / Current draft produced by preceding edits.
     text: String,
 }
 
@@ -67,25 +74,26 @@ pub(crate) fn eval(
         let authoritative = transaction.snapshot()?;
         let mut program = crate::language::compile(&ast, &authoritative, policy)?;
         inject_prepared(&mut program, &prepared, &authoritative)?;
-        interpret_transaction(&program, transaction)
+        interpret_transaction(&program, transaction, &authoritative)
     };
     app.database.write_transaction(&mut operation)
 }
 
 /// @brief 把解析器状态稳定映射为公共诊断。 / Map parser states to stable public diagnostics.
 fn parse_complete(source: &str) -> Result<Program> {
-    let convert = |code: &'static str, parsed: crate::language::ParseDiagnostic| {
+    let convert = |code: String, parsed: crate::language::ParseDiagnostic| {
         Diagnostic::error(code, DiagnosticCategory::Syntax, parsed.message)
             .with_span(SourceSpan::new(parsed.span.start, parsed.span.end))
             .with_cause(parsed.code.as_str())
     };
     match parse(source) {
         ParseOutcome::Complete(program) => Ok(program),
-        ParseOutcome::Incomplete(parsed) => {
-            Err(convert("E_INCOMPLETE", parsed)
-                .with_hint("append the missing DSL input and try again"))
+        ParseOutcome::Incomplete(parsed) => Err(convert("E_INCOMPLETE".to_owned(), parsed)
+            .with_hint("append the missing DSL input and try again")),
+        ParseOutcome::Invalid(parsed) => {
+            let code = parsed.code.as_str().to_owned();
+            Err(convert(code, parsed))
         }
-        ParseOutcome::Invalid(parsed) => Err(convert("E_SYNTAX", parsed)),
     }
 }
 
@@ -195,37 +203,70 @@ fn inject_prepared(
     prepared: &[PreparedFragment],
     authoritative: &CatalogSnapshot,
 ) -> Result<()> {
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum Identity {
+        Existing(crate::domain::NodeId, crate::domain::Revision),
+        Created,
+    }
+    let mut identities = authoritative
+        .iter_by_symbol()
+        .map(|node| {
+            (
+                node.header.symbol.clone(),
+                Identity::Existing(node.header.id, node.header.revision),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut edits = prepared.iter();
     for op in &mut program.ops {
-        if let Op::UpsertFragment {
-            text,
-            expected_revision,
-            target,
-        } = op
-        {
-            let edit = edits.next().ok_or_else(internal_program_mismatch)?;
-            if edit.target != *target {
-                return Err(internal_program_mismatch());
+        match op {
+            Op::UpsertFragment {
+                text,
+                expected_revision,
+                target,
+            } => {
+                let edit = edits.next().ok_or_else(internal_program_mismatch)?;
+                if edit.target != *target {
+                    return Err(internal_program_mismatch());
+                }
+                let expected_identity =
+                    match (edit.edit_target.node_id, edit.edit_target.base_revision) {
+                        (Some(id), Some(revision)) => Some(Identity::Existing(id, revision)),
+                        (None, None) => None,
+                        _ => return Err(internal_program_mismatch()),
+                    };
+                let actual = identities.get(target).copied();
+                let identity_matches = match expected_identity {
+                    Some(expected) => actual == Some(expected),
+                    None => actual.is_none() || actual == Some(Identity::Created),
+                };
+                if !identity_matches {
+                    return Err(Diagnostic::error(
+                        "E_CONFLICT",
+                        DiagnosticCategory::Conflict,
+                        format!("fragment `{target}` changed while it was being edited"),
+                    ));
+                }
+                identities
+                    .entry(target.clone())
+                    .or_insert(Identity::Created);
+                *text = Some(edit.text.clone());
+                *expected_revision = edit.edit_target.base_revision;
             }
-            // New-node races are also conflicts: advisory absence must still be
-            // authoritative absence after the writer reservation is acquired.
-            let identity_matches = match (edit.edit_target.node_id, edit.edit_target.base_revision)
-            {
-                (Some(id), Some(revision)) => authoritative
-                    .get(id)
-                    .is_some_and(|node| node.header.revision == revision),
-                (None, None) => authoritative.get_by_symbol(&edit.target).is_none(),
-                _ => false,
-            };
-            if !identity_matches {
-                return Err(Diagnostic::error(
-                    "E_CONFLICT",
-                    DiagnosticCategory::Conflict,
-                    format!("fragment `{target}` changed while it was being edited"),
-                ));
+            Op::Rename { target, new_symbol } => {
+                if let Some(identity) = identities.remove(target) {
+                    identities.insert(new_symbol.clone(), identity);
+                }
             }
-            *text = Some(edit.text.clone());
-            *expected_revision = edit.edit_target.base_revision;
+            Op::Delete { target } => {
+                identities.remove(target);
+            }
+            Op::ReplacePrompt { target, .. } => {
+                identities
+                    .entry(target.clone())
+                    .or_insert(Identity::Created);
+            }
+            _ => {}
         }
     }
     if edits.next().is_some() {
@@ -247,8 +288,18 @@ fn interpret_read_only(program: &CheckedProgram, snapshot: &CatalogSnapshot) -> 
 fn interpret_transaction(
     program: &CheckedProgram,
     transaction: &mut dyn CatalogWrite,
+    authoritative: &CatalogSnapshot,
 ) -> Result<Vec<Value>> {
     let mut values = Vec::with_capacity(program.ops.len());
+    let mut state = authoritative
+        .iter_by_symbol()
+        .map(|node| {
+            (
+                node.header.symbol.clone(),
+                (node.header.revision, node.header.metadata.clone()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     for op in &program.ops {
         let value = match op {
             Op::UpsertFragment {
@@ -256,10 +307,7 @@ fn interpret_transaction(
                 text,
                 expected_revision,
             } => {
-                let current_revision = transaction
-                    .snapshot()?
-                    .get_by_symbol(target)
-                    .map(|node| node.header.revision);
+                let current_revision = state.get(target).map(|entry| entry.0);
                 // The coordinator already compared the prepared base with the
                 // authoritative pre-mutation snapshot. Here the current revision
                 // may legitimately include earlier operations in this same script.
@@ -269,27 +317,37 @@ fn interpret_transaction(
                     text.as_ref().ok_or_else(internal_program_mismatch)?,
                     current_revision,
                 )?;
+                advance_state(&mut state, target)?;
                 Value::Unit
             }
             Op::ReplacePrompt { target, children } => {
                 transaction.replace_prompt(target, children)?;
+                advance_state(&mut state, target)?;
                 Value::Unit
             }
             Op::Rename { target, new_symbol } => {
                 transaction.rename(target, new_symbol)?;
+                let (revision, metadata) =
+                    state.remove(target).ok_or_else(|| unknown_symbol(target))?;
+                state.insert(new_symbol.clone(), (next_revision(revision)?, metadata));
                 Value::Unit
             }
             Op::Delete { target } => {
                 transaction.delete(target)?;
+                state.remove(target);
                 Value::Unit
             }
             Op::SetDescription {
                 target,
                 description,
             } => {
-                let mut metadata = current_metadata(transaction, target)?;
+                let mut metadata = state
+                    .get(target)
+                    .map(|entry| entry.1.clone())
+                    .ok_or_else(|| unknown_symbol(target))?;
                 metadata.set_description(description.clone());
                 transaction.set_metadata(target, &metadata)?;
+                advance_existing_state(&mut state, target, metadata.clone())?;
                 Value::Metadata(metadata)
             }
             Op::SetTags { target, tags } => {
@@ -299,9 +357,13 @@ fn interpret_transaction(
                     .map(Tag::new)
                     .collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(domain_diagnostic)?;
-                let mut metadata = current_metadata(transaction, target)?;
+                let mut metadata = state
+                    .get(target)
+                    .map(|entry| entry.1.clone())
+                    .ok_or_else(|| unknown_symbol(target))?;
                 metadata.set_tags(parsed);
                 transaction.set_metadata(target, &metadata)?;
+                advance_existing_state(&mut state, target, metadata.clone())?;
                 Value::Metadata(metadata)
             }
             query => {
@@ -314,12 +376,48 @@ fn interpret_transaction(
     Ok(values)
 }
 
-fn current_metadata(transaction: &dyn CatalogWrite, target: &Symbol) -> Result<Metadata> {
-    transaction
-        .snapshot()?
-        .get_by_symbol(target)
-        .map(|node| node.header.metadata.clone())
-        .ok_or_else(|| unknown_symbol(target))
+/// @brief 将节点状态推进一次领域修订。 / Advance node state by one domain revision.
+fn advance_state(
+    state: &mut BTreeMap<Symbol, (crate::domain::Revision, Metadata)>,
+    target: &Symbol,
+) -> Result<()> {
+    if let Some((revision, _)) = state.get_mut(target) {
+        *revision = next_revision(*revision)?;
+    } else {
+        state.insert(
+            target.clone(),
+            (
+                crate::domain::Revision::new(1).map_err(domain_diagnostic)?,
+                Metadata::default(),
+            ),
+        );
+    }
+    Ok(())
+}
+
+/// @brief 推进现有节点并替换缓存元数据。 / Advance an existing node and replace cached metadata.
+fn advance_existing_state(
+    state: &mut BTreeMap<Symbol, (crate::domain::Revision, Metadata)>,
+    target: &Symbol,
+    metadata: Metadata,
+) -> Result<()> {
+    let entry = state
+        .get_mut(target)
+        .ok_or_else(|| unknown_symbol(target))?;
+    entry.0 = next_revision(entry.0)?;
+    entry.1 = metadata;
+    Ok(())
+}
+
+/// @brief 计算下一修订并映射溢出。 / Compute the next revision and map overflow.
+fn next_revision(revision: crate::domain::Revision) -> Result<crate::domain::Revision> {
+    revision.checked_next().ok_or_else(|| {
+        Diagnostic::error(
+            "E_REVISION_OVERFLOW",
+            DiagnosticCategory::Domain,
+            "node revision overflow",
+        )
+    })
 }
 
 /// @brief 解释一个无副作用操作。 / Interpret one side-effect-free operation.
@@ -348,19 +446,22 @@ fn interpret_query(op: &Op, snapshot: &CatalogSnapshot) -> Result<Value> {
             let node = snapshot
                 .get_by_symbol(root)
                 .ok_or_else(|| unknown_symbol(root))?;
-            let bytes = snapshot.render_xml_vec(node.header.id).map_err(|error| {
+            let mut writer = SpillWriter::new();
+            snapshot
+                .render_xml(node.header.id, &mut writer)
+                .map_err(|error| {
+                    Diagnostic::error(
+                        "E_RENDER",
+                        DiagnosticCategory::Domain,
+                        "canonical XML rendering failed",
+                    )
+                    .with_cause(error.to_string())
+                })?;
+            Ok(Value::Xml(writer.finish().map_err(|error| {
                 Diagnostic::error(
-                    "E_RENDER",
-                    DiagnosticCategory::Domain,
-                    "canonical XML rendering failed",
-                )
-                .with_cause(error.to_string())
-            })?;
-            Ok(Value::Xml(String::from_utf8(bytes).map_err(|error| {
-                Diagnostic::error(
-                    "E_INTERNAL_UTF8",
-                    DiagnosticCategory::Internal,
-                    "renderer produced non-UTF-8 bytes",
+                    "E_RENDER_IO",
+                    DiagnosticCategory::External,
+                    "canonical XML spool finalization failed",
                 )
                 .with_cause(error.to_string())
             })?))
@@ -429,7 +530,7 @@ fn search(
             ));
         }
         snapshot
-            .occurrence_counts(root.header.id)
+            .occurrence_counts_saturating(root.header.id)
             .map_err(domain_diagnostic)?
     } else {
         BTreeMap::new()
@@ -491,13 +592,27 @@ fn fragment_text(node: &Node) -> Option<&str> {
         NodeBody::Prompt(_) => None,
     }
 }
-fn domain_diagnostic(error: impl std::fmt::Display) -> Diagnostic {
-    Diagnostic::error(
-        "E_DOMAIN",
-        DiagnosticCategory::Domain,
-        "domain validation failed",
-    )
-    .with_cause(error.to_string())
+fn domain_diagnostic(error: DomainError) -> Diagnostic {
+    let (code, category) = match &error {
+        DomainError::InvalidPositiveInteger { .. } => {
+            ("E_INVALID_INTEGER", DiagnosticCategory::Domain)
+        }
+        DomainError::InvalidSymbol(_) => ("E_INVALID_SYMBOL", DiagnosticCategory::Domain),
+        DomainError::InvalidXmlCharacter { .. } => {
+            ("E_INVALID_XML_TEXT", DiagnosticCategory::Domain)
+        }
+        DomainError::EmptyChildren => ("E_EMPTY_PROMPT", DiagnosticCategory::Domain),
+        DomainError::EmptyTag => ("E_INVALID_TAG", DiagnosticCategory::Domain),
+        DomainError::KindMismatch { .. } => ("E_NODE_KIND", DiagnosticCategory::Domain),
+        DomainError::DuplicateNodeId(_) => ("E_DUPLICATE_NODE_ID", DiagnosticCategory::Domain),
+        DomainError::DuplicateSymbol(_) => ("E_SYMBOL_EXISTS", DiagnosticCategory::Domain),
+        DomainError::MissingNode(_) => ("E_REF_MISSING", DiagnosticCategory::ReferentialIntegrity),
+        DomainError::CycleDetected { .. } => ("E_CYCLE", DiagnosticCategory::ReferentialIntegrity),
+        DomainError::OccurrenceOverflow { .. } => {
+            ("E_OCCURRENCE_OVERFLOW", DiagnosticCategory::Domain)
+        }
+    };
+    Diagnostic::error(code, category, error.to_string())
 }
 fn unknown_symbol(symbol: &Symbol) -> Diagnostic {
     Diagnostic::error(
@@ -532,6 +647,7 @@ mod tests {
         nodes: Vec<Node>,
         transactions: usize,
         fail_commit: bool,
+        failed_spool: Option<PathBuf>,
     }
     struct FakeDatabase(Rc<RefCell<Shared>>);
     struct FakeWrite {
@@ -554,6 +670,10 @@ mod tests {
             };
             let values = operation(&mut writer)?;
             if self.0.borrow().fail_commit {
+                self.0.borrow_mut().failed_spool = values.iter().find_map(|value| match value {
+                    Value::Xml(xml) => xml.spilled_path(),
+                    _ => None,
+                });
                 return Err(Diagnostic::error(
                     "E_COMMIT",
                     DiagnosticCategory::Storage,
@@ -620,6 +740,22 @@ mod tests {
         )
         .unwrap()
     }
+    fn prompt(id: i64, symbol: &str, children: Vec<NodeId>) -> Node {
+        let body = NodeBody::Prompt(crate::domain::NonEmptyChildren::new(children).unwrap());
+        Node::from_parts(
+            NodeHeader {
+                id: NodeId::new(id).unwrap(),
+                symbol: Symbol::new(symbol).unwrap(),
+                kind: NodeKind::Prompt,
+                revision: Revision::new(1).unwrap(),
+                metadata: Metadata::default(),
+                created_at_ms: 0,
+                updated_at_ms: 0,
+            },
+            body,
+        )
+        .unwrap()
+    }
     fn config() -> Config {
         Config::defaults(&ConfigPaths {
             user_config: PathBuf::new(),
@@ -634,6 +770,7 @@ mod tests {
             nodes,
             transactions: 0,
             fail_commit,
+            failed_spool: None,
         }));
         (
             Promptr::from_parts(Box::new(FakeDatabase(shared.clone())), config()),
@@ -704,6 +841,25 @@ mod tests {
     }
 
     #[test]
+    fn commit_failure_drops_an_unpublished_xml_spool() {
+        let body = "x".repeat(crate::application::value::XML_MEMORY_LIMIT + 1);
+        let (mut app, shared) = app(vec![fragment(1, "Big", &body)], true);
+        let error = app
+            .eval(
+                "OUTPUT Big; METADATA Big DESCRIPTION \"changed\";",
+                InvocationPolicy::script(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "E_COMMIT");
+        let path = shared
+            .borrow()
+            .failed_spool
+            .clone()
+            .expect("render must have crossed the spill threshold");
+        assert!(!path.exists(), "rolled-back value retained its spool");
+    }
+
+    #[test]
     fn repeated_fragment_preparation_uses_the_preceding_draft() {
         let snapshot = CatalogSnapshot::new([fragment(1, "Leaf", "durable")]).unwrap();
         let ast = parse_complete("FRAGMENT Leaf; FRAGMENT Leaf;").unwrap();
@@ -729,6 +885,80 @@ mod tests {
                 .iter()
                 .all(|edit| edit.edit_target.base_revision == Some(Revision::new(1).unwrap()))
         );
+    }
+
+    #[test]
+    fn preparation_identity_follows_delete_and_rename_overlay() {
+        for source in [
+            "DELETE Leaf; FRAGMENT Leaf;",
+            "RENAME Leaf TO Renamed; FRAGMENT Leaf;",
+        ] {
+            let snapshot = CatalogSnapshot::new([fragment(1, "Leaf", "durable")]).unwrap();
+            let ast = parse_complete(source).unwrap();
+            let mut checked =
+                crate::language::compile(&ast, &snapshot, InvocationPolicy::interactive()).unwrap();
+            let mut provider = SequenceProvider {
+                originals: Vec::new(),
+                replacements: ["replacement".to_owned()].into(),
+            };
+            let prepared = prepare_fragments(&checked, &snapshot, Some(&mut provider))
+                .unwrap()
+                .unwrap();
+            assert_eq!(provider.originals, [""]);
+            inject_prepared(&mut checked, &prepared, &snapshot).unwrap();
+        }
+    }
+
+    #[test]
+    fn prepared_existing_fragment_rejects_authoritative_revision_change() {
+        let advisory = CatalogSnapshot::new([fragment(1, "Leaf", "old")]).unwrap();
+        let ast = parse_complete("FRAGMENT Leaf;").unwrap();
+        let mut checked =
+            crate::language::compile(&ast, &advisory, InvocationPolicy::interactive()).unwrap();
+        let mut provider = SequenceProvider {
+            originals: Vec::new(),
+            replacements: ["draft".to_owned()].into(),
+        };
+        let prepared = prepare_fragments(&checked, &advisory, Some(&mut provider))
+            .unwrap()
+            .unwrap();
+        let mut changed = fragment(1, "Leaf", "concurrent");
+        changed.header.revision = Revision::new(2).unwrap();
+        let authoritative = CatalogSnapshot::new([changed]).unwrap();
+        assert_eq!(
+            inject_prepared(&mut checked, &prepared, &authoritative)
+                .unwrap_err()
+                .code,
+            "E_CONFLICT"
+        );
+    }
+
+    #[test]
+    fn find_saturates_path_count_instead_of_failing() {
+        let mut nodes = vec![fragment(1, "Needle", "match")];
+        for id in 2..=66 {
+            nodes.push(prompt(
+                id,
+                &format!("P{id}"),
+                vec![NodeId::new(id - 1).unwrap(); 2],
+            ));
+        }
+        let snapshot = CatalogSnapshot::new(nodes).unwrap();
+        let hits = search(
+            &snapshot,
+            "Needle",
+            SearchField::Title,
+            Some(&Symbol::new("P66").unwrap()),
+        )
+        .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].occurrence_count, u64::MAX);
+    }
+
+    #[test]
+    fn invalid_parse_preserves_frontend_code() {
+        let error = parse_complete("@").unwrap_err();
+        assert_eq!(error.code, "E0001");
     }
 
     #[test]

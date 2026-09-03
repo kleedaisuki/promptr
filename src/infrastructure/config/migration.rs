@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fs2::FileExt;
 use tempfile::NamedTempFile;
 use toml_edit::{DocumentMut, value};
 
@@ -42,17 +43,14 @@ pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>
     if !parsed.diagnostics.is_empty() {
         return Err(parsed.diagnostics);
     }
-    let version = parsed.raw.schema_version.unwrap_or(CURRENT_SCHEMA_VERSION);
-    if version > CURRENT_SCHEMA_VERSION {
-        parsed.raw.clone().validate()?;
-    }
+    let version = parsed.input_schema_version;
     if version < CURRENT_SCHEMA_VERSION {
         Ok(MigrationOutcome::WouldMigrate {
             from: version,
             to: CURRENT_SCHEMA_VERSION,
         })
     } else {
-        parsed.raw.validate()?;
+        parsed.raw.validate_at(&path.display().to_string())?;
         Ok(MigrationOutcome::AlreadyCurrent)
     }
 }
@@ -74,19 +72,16 @@ pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnosti
     if !parsed.diagnostics.is_empty() {
         return Err(parsed.diagnostics);
     }
-    let from = parsed.raw.schema_version.unwrap_or(CURRENT_SCHEMA_VERSION);
-    if from > CURRENT_SCHEMA_VERSION {
-        parsed.raw.clone().validate()?;
-    }
+    let from = parsed.input_schema_version;
     if from == CURRENT_SCHEMA_VERSION {
-        parsed.raw.validate()?;
+        parsed.raw.validate_at(&path.display().to_string())?;
         return Ok(MigrationOutcome::AlreadyCurrent);
     }
     let mut document = parsed.document;
     upgrade_document(&mut document, from)?;
     let migrated = document.to_string();
     let checked = ParsedConfig::parse(&migrated, path.display().to_string())?;
-    checked.raw.validate()?;
+    checked.raw.validate_at(&path.display().to_string())?;
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temporary =
@@ -140,43 +135,50 @@ pub(super) fn upgrade_document(
 }
 
 struct ConfigLock {
-    path: PathBuf,
+    file: fs::File,
 }
 
 impl ConfigLock {
     fn acquire(path: &Path) -> Result<Self, Vec<ConfigDiagnostic>> {
         let lock_path = path.with_extension("toml.lock");
-        OpenOptions::new()
+        let file = OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
+            .create(true)
+            .truncate(false)
             .open(&lock_path)
-            .map_err(|error| {
-                vec![
-                    ConfigDiagnostic::error(
-                        "E_CONFIG_LOCK",
-                        format!(
-                            "cannot acquire migration lock `{}`: {error}",
-                            lock_path.display()
-                        ),
-                    )
-                    .with_suggestion("wait for the other config migration to finish"),
-                ]
-            })?;
-        Ok(Self { path: lock_path })
+            .map_err(|error| io_diagnostics(&lock_path, error))?;
+        file.try_lock_exclusive().map_err(|error| {
+            vec![
+                ConfigDiagnostic::error(
+                    "E_CONFIG_LOCK",
+                    format!(
+                        "cannot acquire migration lock `{}`: {error}",
+                        lock_path.display()
+                    ),
+                )
+                .with_suggestion("another migration is active; retry after it completes"),
+            ]
+        })?;
+        Ok(Self { file })
     }
 }
 
 impl Drop for ConfigLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        let _ = FileExt::unlock(&self.file);
     }
 }
 
-fn backup_path(path: &Path) -> PathBuf {
-    let stamp = SystemTime::now()
+fn now_nanos() -> u128 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_nanos();
+        .as_nanos()
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    let stamp = now_nanos();
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     path.with_file_name(format!("{name}.bak.{stamp}"))
 }
@@ -236,5 +238,18 @@ mod tests {
         let result = fs::read_to_string(path).unwrap();
         assert!(result.contains("# retained"));
         assert!(result.contains("schema_version = 1"));
+    }
+
+    #[test]
+    fn migration_lock_competes_and_drop_releases_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let lock_path = path.with_extension("toml.lock");
+        let first = ConfigLock::acquire(&path).unwrap();
+        assert!(ConfigLock::acquire(&path).is_err());
+        drop(first);
+        let second = ConfigLock::acquire(&path).unwrap();
+        drop(second);
+        assert!(lock_path.exists());
     }
 }

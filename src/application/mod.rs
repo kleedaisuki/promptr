@@ -8,4 +8,4 @@ mod value;
 
 pub use app::{InvocationPolicy, Promptr, PromptrOptions};
 pub use command::{CheckedProgram, Effects, NodeFilter, Op};
-pub use value::{NodeView, SearchHitView, Value};
+pub use value::{CanonicalXml, NodeView, SearchHitView, SpillWriter, Value};

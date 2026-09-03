@@ -17,6 +17,6 @@ pub use migration::{MigrationOutcome, check_file, migrate_file};
 pub use paths::ConfigPaths;
 pub use schema::{
     CURRENT_SCHEMA_VERSION, ColorMode, Config, ConfigOverlay, DatabaseConfig, EditorConfig,
-    EditorMode, GlyphMode, PreviewMode, RawConfig, SearchConfig, SearchField, SearchMatcher, Theme,
-    UiConfig, init_example,
+    EditorMode, GlyphMode, JournalMode, PreviewMode, RawConfig, SearchConfig, SearchField,
+    SearchMatcher, Theme, UiConfig, init_example,
 };

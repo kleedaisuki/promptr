@@ -61,6 +61,15 @@ impl CatalogSnapshot {
     pub fn new(nodes: impl IntoIterator<Item = Node>) -> Result<Self, DomainError> {
         let mut snapshot = Self::default();
         for node in nodes {
+            // 在聚合边界再次声明该持久化不变量，避免未来新增构造路径时静默放宽。
+            // Reassert the persistence invariant at the aggregate boundary so future
+            // construction paths cannot silently weaken it.
+            if node.header.id.get() <= 0 {
+                return Err(DomainError::InvalidPositiveInteger {
+                    kind: "node id",
+                    value: i128::from(node.header.id.get()),
+                });
+            }
             let actual = node.body.kind();
             if node.header.kind != actual {
                 return Err(DomainError::KindMismatch {
@@ -212,6 +221,63 @@ impl CatalogSnapshot {
                     *count = count
                         .checked_add(parent_count)
                         .ok_or(DomainError::OccurrenceOverflow { at: child })?;
+                    let degree = incoming
+                        .get_mut(&child)
+                        .ok_or(DomainError::MissingNode(child))?;
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.push(child);
+                    }
+                }
+            }
+        }
+        if visited != reachable.len() {
+            let at = incoming
+                .into_iter()
+                .find_map(|(id, degree)| (degree != 0).then_some(id))
+                .unwrap_or(root);
+            return Err(DomainError::CycleDetected { at });
+        }
+        Ok(counts)
+    }
+
+    /// @brief 以饱和算术计算完全展开树中的路径出现次数。 / Count expanded-tree path occurrences with saturating arithmetic.
+    /// @param root 展开根。 / Expansion root.
+    /// @return 可达节点计数；超过 `u64::MAX` 的值固定为该上限。 / Reachable-node counts, clamped to `u64::MAX` on overflow.
+    /// @note 该查询不会因出现次数溢出而失败；结构损坏仍返回领域错误。 / Occurrence overflow never fails this query; structural corruption still returns a domain error.
+    pub fn occurrence_counts_saturating(
+        &self,
+        root: NodeId,
+    ) -> Result<BTreeMap<NodeId, u64>, DomainError> {
+        let reachable = self.reachable(root)?;
+        let mut incoming: BTreeMap<NodeId, usize> = reachable.iter().map(|&id| (id, 0)).collect();
+        for &id in &reachable {
+            if let NodeBody::Prompt(children) = &self.nodes[&id].body {
+                for child in children.as_slice() {
+                    let degree = incoming
+                        .get_mut(child)
+                        .ok_or(DomainError::MissingNode(*child))?;
+                    *degree = degree.saturating_add(1);
+                }
+            }
+        }
+
+        let mut counts: BTreeMap<NodeId, u64> = reachable.iter().map(|&id| (id, 0)).collect();
+        counts.insert(root, 1);
+        let mut ready: Vec<NodeId> = incoming
+            .iter()
+            .filter_map(|(&id, &degree)| (degree == 0).then_some(id))
+            .collect();
+        let mut visited = 0usize;
+        while let Some(id) = ready.pop() {
+            visited += 1;
+            let parent_count = counts[&id];
+            if let NodeBody::Prompt(children) = &self.nodes[&id].body {
+                for &child in children.as_slice() {
+                    let count = counts
+                        .get_mut(&child)
+                        .ok_or(DomainError::MissingNode(child))?;
+                    *count = count.saturating_add(parent_count);
                     let degree = incoming
                         .get_mut(&child)
                         .ok_or(DomainError::MissingNode(child))?;
@@ -466,6 +532,28 @@ mod tests {
             snapshot
                 .validate_replacement(id(3), &[id(1), id(1)])
                 .is_ok()
+        );
+    }
+
+    #[test]
+    fn saturating_occurrences_remain_queryable_after_overflow() {
+        let leaf_id = id(66);
+        let mut nodes = vec![fragment(66, "N66", "x")];
+        for value in (1..66).rev() {
+            nodes.push(prompt(
+                value,
+                &format!("N{value}"),
+                vec![id(value + 1), id(value + 1)],
+            ));
+        }
+        let snapshot = CatalogSnapshot::new(nodes).unwrap();
+        assert!(matches!(
+            snapshot.occurrence_counts(id(1)),
+            Err(DomainError::OccurrenceOverflow { .. })
+        ));
+        assert_eq!(
+            snapshot.occurrence_counts_saturating(id(1)).unwrap()[&leaf_id],
+            u64::MAX
         );
     }
 

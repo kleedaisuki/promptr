@@ -291,13 +291,23 @@ impl RawConfig {
     /// @brief 将原始配置转换为已验证覆盖层 / Converts raw config into a validated overlay.
     /// @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise.
     pub fn validate(self) -> Result<ConfigOverlay, Vec<ConfigDiagnostic>> {
+        self.validate_at("<memory>")
+    }
+
+    /// @brief 在指定源上验证原始配置 / Validates raw configuration at a named source.
+    /// @param source 配置路径或源名 / Configuration path or source name.
+    /// @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise.
+    pub fn validate_at(self, source: &str) -> Result<ConfigOverlay, Vec<ConfigDiagnostic>> {
         let mut diagnostics = Vec::new();
         let version = self.schema_version.unwrap_or(CURRENT_SCHEMA_VERSION);
         if version > CURRENT_SCHEMA_VERSION {
             diagnostics.push(ConfigDiagnostic::error(
-                "E_CONFIG_NEWER",
-                format!("configuration schema {version} requires a newer Promptr; this executable supports schema {CURRENT_SCHEMA_VERSION}"),
-            ).with_suggestion("upgrade Promptr or select a schema-1 configuration"));
+                "E_CONFIG_SCHEMA_NEW",
+                format!(
+                    "configuration schema is newer than this executable: found={version}, max_supported={CURRENT_SCHEMA_VERSION}, path={source}, app_version={}",
+                    env!("CARGO_PKG_VERSION")
+                ),
+            ).with_source(source).with_suggestion("upgrade Promptr or select a compatible configuration"));
         }
 
         let editor = self.editor.unwrap_or_default();

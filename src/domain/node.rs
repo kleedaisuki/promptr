@@ -9,7 +9,7 @@ use super::{DomainError, Metadata};
 
 /// @brief 稳定的内部节点标识。 / Stable internal node identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "i64", into = "i64")]
 pub struct NodeId(NonZeroI64);
 
 impl NodeId {
@@ -39,9 +39,23 @@ impl fmt::Display for NodeId {
     }
 }
 
+impl TryFrom<i64> for NodeId {
+    type Error = DomainError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<NodeId> for i64 {
+    fn from(value: NodeId) -> Self {
+        value.get()
+    }
+}
+
 /// @brief 节点的乐观并发修订号。 / Optimistic-concurrency revision of a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "u64", into = "u64")]
 pub struct Revision(NonZeroU64);
 
 impl Revision {
@@ -68,6 +82,20 @@ impl Revision {
             .checked_add(1)
             .and_then(NonZeroU64::new)
             .map(Self)
+    }
+}
+
+impl TryFrom<u64> for Revision {
+    type Error = DomainError;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<Revision> for u64 {
+    fn from(value: Revision) -> Self {
+        value.get()
     }
 }
 
@@ -251,9 +279,36 @@ pub struct NodeHeader {
 
 /// @brief 完整领域节点。 / Complete domain node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "NodeDto", into = "NodeDto")]
 pub struct Node {
     pub header: NodeHeader,
     pub body: NodeBody,
+}
+
+/// @brief 仅用于经过校验的节点序列化。 / Serialization DTO used only for validated node conversion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NodeDto {
+    /// @brief 持久化节点头。 / Persisted node header.
+    header: NodeHeader,
+    /// @brief 持久化节点体。 / Persisted node body.
+    body: NodeBody,
+}
+
+impl TryFrom<NodeDto> for Node {
+    type Error = DomainError;
+
+    fn try_from(value: NodeDto) -> Result<Self, Self::Error> {
+        Self::from_parts(value.header, value.body)
+    }
+}
+
+impl From<Node> for NodeDto {
+    fn from(value: Node) -> Self {
+        Self {
+            header: value.header,
+            body: value.body,
+        }
+    }
 }
 
 impl Node {
@@ -294,6 +349,32 @@ mod tests {
         for invalid in ['\0', '\u{8}', '\u{B}', '\u{1F}'] {
             assert!(XmlText::new(invalid.to_string()).is_err());
         }
+    }
+
+    #[test]
+    fn serde_rejects_non_positive_id_and_revision() {
+        assert!(serde_json::from_str::<NodeId>("-1").is_err());
+        assert!(serde_json::from_str::<NodeId>("0").is_err());
+        assert_eq!(serde_json::from_str::<NodeId>("1").unwrap().get(), 1);
+        assert!(serde_json::from_str::<Revision>("0").is_err());
+        assert_eq!(serde_json::from_str::<Revision>("1").unwrap().get(), 1);
+    }
+
+    #[test]
+    fn serde_revalidates_node_kind_against_body() {
+        let json = r#"{
+            "header": {
+                "id": 1,
+                "symbol": "Mismatch",
+                "kind": "Prompt",
+                "revision": 1,
+                "metadata": {"description": null, "tags": []},
+                "created_at_ms": 0,
+                "updated_at_ms": 0
+            },
+            "body": {"Fragment": "text"}
+        }"#;
+        assert!(serde_json::from_str::<Node>(json).is_err());
     }
 
     proptest! {
