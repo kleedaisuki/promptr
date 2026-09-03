@@ -410,9 +410,12 @@ empty list clears tags.
 
 ### 7.3 Search indexes
 
-Symbol fuzzy matching runs in memory. Fragment content search uses SQLite FTS5
-as its candidate generator. FTS tables are derived state: migrations and repair
-tools rebuild them from canonical tables.
+Version 0.1 fuzzy and exact matching run against one consistent in-memory
+catalog snapshot so the matcher cannot omit edit-distance results. SQLite FTS5
+is maintained as derived state for inspection, rebuilding, and a future
+candidate-generation policy; it is not an authority for catalog semantics.
+Normal open and repair tools rebuild a missing or stale FTS projection from the
+canonical tables without changing the catalog revision.
 
 ### 7.4 Connection policy
 

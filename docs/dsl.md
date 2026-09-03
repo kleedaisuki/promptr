@@ -450,10 +450,12 @@ Fragment objects, not edge occurrences.
 - `TITLE` searches Symbols.
 - `CONTENT` searches Fragment content.
 - `MIXED` searches and ranks using both fields.
-- The default field is `MIXED`.
+- The built-in default field is `MIXED`. An invocation may select a different
+  default through typed configuration; an explicit `FROM` clause always wins.
 
-The default matcher is fuzzy matching. Exact scoring and presentation are not a
-stable language contract, but ties MUST be resolved deterministically.
+The built-in matcher is fuzzy matching. Typed runtime configuration may select
+case-sensitive exact substring matching. Matcher scoring and presentation are
+not a stable language contract, but ties MUST be resolved deterministically.
 
 The domain search API SHOULD model search scope, searched field, and matching
 algorithm as separate dimensions even though version 0.1 exposes only the
