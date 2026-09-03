@@ -105,13 +105,15 @@ pub enum Statement {
     /// @brief 全局搜索片段 / Searches the global fragment catalog.
     Search {
         query: Spanned<String>,
-        field: SearchField,
+        /// @brief 显式字段；None 表示延迟到运行时配置。 / Explicit field; None defers to runtime configuration.
+        field: Option<SearchField>,
     },
     /// @brief 在提示词可达范围内搜索 / Searches within a prompt's reachable fragments.
     Find {
         query: Spanned<String>,
         prompt: Spanned<String>,
-        field: SearchField,
+        /// @brief 显式字段；None 表示延迟到运行时配置。 / Explicit field; None defers to runtime configuration.
+        field: Option<SearchField>,
     },
     /// @brief 替换用户元数据 / Replaces user metadata.
     Metadata {

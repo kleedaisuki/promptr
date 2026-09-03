@@ -148,6 +148,7 @@ impl SqliteDatabase {
         validate_options(options)?;
         let path = path.as_ref().to_path_buf();
         let connection = Connection::open(&path).map_err(storage)?;
+        let path = std::fs::canonicalize(path).map_err(io_storage)?;
         Self::finish_open(connection, Some(path), false, true, options)
     }
 
@@ -170,6 +171,7 @@ impl SqliteDatabase {
         let path = path.as_ref().to_path_buf();
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let connection = Connection::open_with_flags(&path, flags).map_err(storage)?;
+        let path = std::fs::canonicalize(path).map_err(io_storage)?;
         Self::finish_open(connection, Some(path), false, false, options)
     }
 
@@ -201,9 +203,20 @@ impl SqliteDatabase {
             claim_empty_database(&mut connection)?;
             if pragma_i32(&connection, "application_id")? == APPLICATION_ID {
                 configure(&connection, memory, options)?;
+                ensure_fts_healthy(&mut connection)?;
             }
-        } else if application_id == APPLICATION_ID {
-            configure(&connection, memory, options)?;
+        } else if application_id == APPLICATION_ID && user_version <= SCHEMA_VERSION {
+            // `open_existing` is used by observational maintenance commands.  Its
+            // connection-local policy is useful, but it must not persist a new
+            // journal mode merely because somebody asked for status or doctor.
+            if !initialize_empty {
+                configure_local(&connection, options)?;
+            } else {
+                configure(&connection, memory, options)?;
+                if validate_normal(&connection).is_ok() {
+                    ensure_fts_healthy(&mut connection)?;
+                }
+            }
         }
         Ok(Self {
             connection: Mutex::new(connection),
@@ -308,6 +321,18 @@ impl SqliteDatabase {
     /// @return 成功或诊断。 / Success or diagnostic.
     pub fn backup(&self, destination: impl AsRef<Path>) -> Result<()> {
         let destination = destination.as_ref();
+        if let Some(source) = &self.path
+            && paths_refer_to_same_file(source, destination)?
+        {
+            return Err(diag(
+                "E_DB_BACKUP_DESTINATION",
+                DiagnosticCategory::Configuration,
+                format!(
+                    "backup destination `{}` refers to the live source database",
+                    destination.display()
+                ),
+            ));
+        }
         let parent = destination
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -375,7 +400,7 @@ impl SqliteDatabase {
         }
         let header_version = pragma_i32(conn, "user_version")?;
         if header_version > SCHEMA_VERSION {
-            return Err(schema_new(header_version));
+            return Err(schema_new(conn, header_version));
         }
         let ledger: Option<i32> = conn
             .query_row("SELECT max(version) FROM schema_migrations", [], |r| {
@@ -390,7 +415,7 @@ impl SqliteDatabase {
             )
         })?;
         if ledger > SCHEMA_VERSION {
-            return Err(schema_new(ledger));
+            return Err(schema_new(conn, ledger));
         }
         if ledger == 1 {
             let (name, checksum): (String, String) = conn
@@ -447,6 +472,10 @@ impl CatalogRead for SqliteDatabase {
 }
 
 impl Database for SqliteDatabase {
+    fn change_token(&self) -> Result<Option<u64>> {
+        self.data_version().map(Some)
+    }
+
     fn write_transaction(
         &mut self,
         operation: &mut dyn FnMut(&mut dyn CatalogWrite) -> Result<Vec<Value>>,
@@ -710,7 +739,7 @@ fn claim_empty_database(connection: &mut Connection) -> Result<()> {
 
 fn inspect_normal_error(connection: &Connection, user_version: i32) -> Result<Option<Diagnostic>> {
     if user_version > SCHEMA_VERSION {
-        return Ok(Some(schema_new(user_version)));
+        return Ok(Some(schema_new(connection, user_version)));
     }
     if !table_exists(connection, "schema_migrations")? {
         return Ok(Some(diag(
@@ -783,7 +812,7 @@ fn validate_identity_and_version(connection: &Connection) -> Result<()> {
     }
     let user_version = pragma_i32(connection, "user_version")?;
     if user_version > SCHEMA_VERSION {
-        return Err(schema_new(user_version));
+        return Err(schema_new(connection, user_version));
     }
     Ok(())
 }
@@ -849,9 +878,7 @@ fn validate_options(options: SqliteOptions) -> Result<()> {
 }
 
 fn configure(connection: &Connection, memory: bool, options: SqliteOptions) -> Result<()> {
-    connection
-        .pragma_update(None, "foreign_keys", true)
-        .map_err(storage)?;
+    configure_local(connection, options)?;
     if !memory {
         let journal = match options.journal_mode {
             SqliteJournalMode::Wal => "WAL",
@@ -861,6 +888,28 @@ fn configure(connection: &Connection, memory: bool, options: SqliteOptions) -> R
             .pragma_update(None, "journal_mode", journal)
             .map_err(storage)?;
     }
+    let journal: String = connection
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .map_err(storage)?;
+    if !memory
+        && !journal.eq_ignore_ascii_case(match options.journal_mode {
+            SqliteJournalMode::Wal => "wal",
+            SqliteJournalMode::Delete => "delete",
+        })
+    {
+        return Err(diag(
+            "E_DB_PRAGMA",
+            DiagnosticCategory::Storage,
+            "SQLite journal policy could not be established",
+        ));
+    }
+    Ok(())
+}
+
+fn configure_local(connection: &Connection, options: SqliteOptions) -> Result<()> {
+    connection
+        .pragma_update(None, "foreign_keys", true)
+        .map_err(storage)?;
     connection
         .pragma_update(None, "synchronous", "FULL")
         .map_err(storage)?;
@@ -874,18 +923,10 @@ fn configure(connection: &Connection, memory: bool, options: SqliteOptions) -> R
     let sync: i32 = pragma_i32(connection, "synchronous")?;
     let trusted: i32 = pragma_i32(connection, "trusted_schema")?;
     let busy_timeout: i32 = pragma_i32(connection, "busy_timeout")?;
-    let journal: String = connection
-        .pragma_query_value(None, "journal_mode", |r| r.get(0))
-        .map_err(storage)?;
     if foreign != 1
         || sync != 2
         || trusted != 0
         || busy_timeout != i32::try_from(options.busy_timeout.as_millis()).unwrap_or(i32::MAX)
-        || (!memory
-            && !journal.eq_ignore_ascii_case(match options.journal_mode {
-                SqliteJournalMode::Wal => "wal",
-                SqliteJournalMode::Delete => "delete",
-            }))
     {
         return Err(diag(
             "E_DB_PRAGMA",
@@ -1061,6 +1102,48 @@ fn rebuild_fts(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_fts_healthy(connection: &mut Connection) -> Result<()> {
+    if fts_matches_canonical(connection).unwrap_or(false) {
+        return Ok(());
+    }
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage)?;
+    validate_normal(&tx)?;
+    if !fts_matches_canonical(&tx).unwrap_or(false) {
+        rebuild_fts(&tx)?;
+    }
+    tx.commit().map_err(storage)
+}
+
+fn fts_matches_canonical(connection: &Connection) -> rusqlite::Result<bool> {
+    if !table_exists_raw(connection, "node_fts")? {
+        return Ok(false);
+    }
+    type FtsRow = (String, String, String, String);
+    let expected = {
+        let mut statement = connection.prepare(
+            "SELECT CAST(n.id AS TEXT),n.symbol,COALESCE(f.text,''),COALESCE(n.description,'') || char(0) || COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id ORDER BY n.id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<FtsRow>>>()?
+    };
+    let actual = {
+        let mut statement = connection.prepare(
+            "SELECT CAST(node_id AS TEXT),symbol,content,description || char(0) || tags FROM node_fts ORDER BY CAST(node_id AS INTEGER)",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<FtsRow>>>()?
+    };
+    Ok(actual == expected)
+}
+
 fn refresh_fts_node(connection: &Connection, node_id: i64) -> Result<()> {
     connection
         .execute("DELETE FROM node_fts WHERE node_id=?1", [node_id])
@@ -1117,13 +1200,14 @@ fn bump_catalog(connection: &Connection) -> Result<()> {
     Ok(())
 }
 fn table_exists(connection: &Connection, name: &str) -> Result<bool> {
-    connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)",
-            [name],
-            |r| r.get(0),
-        )
-        .map_err(storage)
+    table_exists_raw(connection, name).map_err(storage)
+}
+fn table_exists_raw(connection: &Connection, name: &str) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)",
+        [name],
+        |r| r.get(0),
+    )
 }
 fn pragma_i32(connection: &Connection, name: &str) -> Result<i32> {
     connection
@@ -1209,12 +1293,30 @@ fn revision_overflow() -> Diagnostic {
         "node revision overflow",
     )
 }
-fn schema_new(found: i32) -> Diagnostic {
+fn schema_new(connection: &Connection, found: i32) -> Diagnostic {
+    let path = connection
+        .query_row("PRAGMA database_list", [], |row| row.get::<_, String>(2))
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "<memory>".into());
     diag(
         "E_SCHEMA_NEW",
         DiagnosticCategory::Compatibility,
-        format!("database schema {found} is newer than supported schema {SCHEMA_VERSION}"),
+        format!(
+            "database `{path}` schema found={found} is newer than max={SCHEMA_VERSION} supported by Promptr {}",
+            env!("CARGO_PKG_VERSION")
+        ),
     )
+}
+
+fn paths_refer_to_same_file(source: &Path, destination: &Path) -> Result<bool> {
+    let source = std::fs::canonicalize(source).map_err(io_storage)?;
+    let destination = match std::fs::canonicalize(destination) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(io_storage(error)),
+    };
+    Ok(source == destination)
 }
 
 #[cfg(test)]
@@ -1226,6 +1328,24 @@ mod tests {
     }
     fn text(value: &str) -> XmlText {
         XmlText::new(value).unwrap()
+    }
+
+    #[test]
+    fn change_token_moves_only_after_another_connection_commits() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shared.sqlite");
+        let first = SqliteDatabase::open(&path).unwrap();
+        let mut second = SqliteDatabase::open(&path).unwrap();
+        let before = Database::change_token(&first).unwrap().unwrap();
+        second
+            .write_transaction(&mut |writer| {
+                writer.upsert_fragment(&symbol("Leaf"), &text("body"), None)?;
+                Ok(vec![])
+            })
+            .unwrap();
+        let after = Database::change_token(&first).unwrap().unwrap();
+        assert_ne!(before, after);
+        assert_eq!(Database::change_token(&first).unwrap(), Some(after));
     }
 
     #[test]
@@ -1650,6 +1770,116 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(".promptr-backup-")
         }));
+    }
+
+    #[test]
+    fn backup_rejects_source_and_alias_before_touching_live_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source.db");
+        let alias_path = directory.path().join(".").join("source.db");
+        let mut source = SqliteDatabase::open(&source_path).unwrap();
+        source
+            .write_transaction(&mut |writer| {
+                writer.upsert_fragment(&symbol("Leaf"), &text("body"), None)?;
+                Ok(vec![])
+            })
+            .unwrap();
+
+        assert_eq!(
+            source.backup(&source_path).unwrap_err().code,
+            "E_DB_BACKUP_DESTINATION"
+        );
+        assert_eq!(
+            source.backup(&alias_path).unwrap_err().code,
+            "E_DB_BACKUP_DESTINATION"
+        );
+        assert!(
+            source
+                .snapshot()
+                .unwrap()
+                .get_by_symbol(&symbol("Leaf"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn newer_schema_open_preserves_persistent_journal_mode() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("future.db");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(&format!(
+                "PRAGMA journal_mode=DELETE; PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version={};",
+                SCHEMA_VERSION + 1
+            ))
+            .unwrap();
+        drop(connection);
+
+        let database = SqliteDatabase::open(&path).unwrap();
+        let error = database.snapshot().unwrap_err();
+        assert_eq!(error.code, "E_SCHEMA_NEW");
+        assert!(error.message.contains("found=2"));
+        assert!(error.message.contains("max=1"));
+        assert!(error.message.contains(env!("CARGO_PKG_VERSION")));
+        drop(database);
+
+        let connection = Connection::open(&path).unwrap();
+        let journal: String = connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal.to_ascii_lowercase(), "delete");
+    }
+
+    #[test]
+    fn normal_open_repairs_missing_or_stale_fts_without_revision_change() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.db");
+        let mut database = SqliteDatabase::open(&path).unwrap();
+        database
+            .write_transaction(&mut |writer| {
+                writer.upsert_fragment(&symbol("Leaf"), &text("canonical"), None)?;
+                Ok(vec![])
+            })
+            .unwrap();
+        let revision = database.catalog_revision().unwrap();
+        database
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TABLE node_fts")
+            .unwrap();
+        drop(database);
+
+        let database = SqliteDatabase::open(&path).unwrap();
+        assert_eq!(database.catalog_revision().unwrap(), revision);
+        let content: String = database
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT content FROM node_fts WHERE symbol='Leaf'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "canonical");
+        database
+            .lock()
+            .unwrap()
+            .execute("UPDATE node_fts SET content='stale'", [])
+            .unwrap();
+        drop(database);
+
+        let database = SqliteDatabase::open(&path).unwrap();
+        assert_eq!(database.catalog_revision().unwrap(), revision);
+        let content: String = database
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT content FROM node_fts WHERE symbol='Leaf'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "canonical");
     }
 
     #[test]

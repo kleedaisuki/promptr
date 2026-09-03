@@ -52,6 +52,12 @@ pub trait CatalogWrite: CatalogRead {
 
 /// @brief 由数据库适配器实现的事务边界。 / Transaction boundary implemented by a database adapter.
 pub trait Database: CatalogRead {
+    /// @brief 返回用于检测外部提交的可选变化令牌。 / Return an optional change token for detecting external commits.
+    /// @return 适配器支持时返回连接局部令牌，否则返回 None。 / A connection-local token when supported, otherwise None.
+    fn change_token(&self) -> Result<Option<u64>> {
+        Ok(None)
+    }
+
     /// @brief 在 BEGIN IMMEDIATE 事务中运行闭包并仅在成功时提交。 / Run a closure in BEGIN IMMEDIATE and commit only on success.
     /// @param operation 应用层解释闭包。 / Application-layer interpretation closure.
     /// @return 闭包值或结构化诊断。 / Closure value or structured diagnostic.

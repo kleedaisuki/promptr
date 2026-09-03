@@ -148,18 +148,18 @@ impl Parser {
         })
     }
 
-    fn optional_field(&mut self) -> PResult<SearchField> {
+    fn optional_field(&mut self) -> PResult<Option<SearchField>> {
         if self.check_punct(&TokenKind::Semicolon) {
-            return Ok(SearchField::Mixed);
+            return Ok(None);
         }
         self.expect_keyword("FROM")?;
         let field = self.expect_ident("TITLE、CONTENT 或 MIXED")?;
         if keyword(&field.value, "TITLE") {
-            Ok(SearchField::Title)
+            Ok(Some(SearchField::Title))
         } else if keyword(&field.value, "CONTENT") {
-            Ok(SearchField::Content)
+            Ok(Some(SearchField::Content))
         } else if keyword(&field.value, "MIXED") {
-            Ok(SearchField::Mixed)
+            Ok(Some(SearchField::Mixed))
         } else {
             Err(self.invalid(
                 DiagnosticCode::UnexpectedToken,
@@ -347,6 +347,30 @@ mod tests {
         let program = complete(source);
         assert_eq!(program.statements.len(), 14);
         assert_eq!(program.span, Span::new(0, source.len()));
+    }
+
+    #[test]
+    fn preserves_omitted_search_fields_for_runtime_defaults() {
+        let program =
+            complete("SEARCH \"a\"; SEARCH \"b\" FROM MIXED; FIND \"c\" ON Root FROM TITLE;");
+        assert!(matches!(
+            program.statements[0].value,
+            Statement::Search { field: None, .. }
+        ));
+        assert!(matches!(
+            program.statements[1].value,
+            Statement::Search {
+                field: Some(SearchField::Mixed),
+                ..
+            }
+        ));
+        assert!(matches!(
+            program.statements[2].value,
+            Statement::Find {
+                field: Some(SearchField::Title),
+                ..
+            }
+        ));
     }
 
     #[test]

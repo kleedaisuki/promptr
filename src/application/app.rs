@@ -1,8 +1,15 @@
 //! Promptr 应用门面。 / Promptr application facade.
 
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
-use crate::{diagnostic::Result, infrastructure::config::Config};
+use crate::{
+    Diagnostic, DiagnosticCategory,
+    diagnostic::Result,
+    infrastructure::{
+        config::Config,
+        sqlite::{SqliteDatabase, SqliteOptions},
+    },
+};
 
 use super::{CheckedProgram, Effects, Value, ports::Database};
 use crate::infrastructure::editor::TextProvider;
@@ -52,6 +59,48 @@ pub struct Promptr {
 }
 
 impl Promptr {
+    /// @brief 使用生产 SQLite 适配器打开应用。 / Open the application with the production SQLite adapter.
+    /// @param options 数据库覆盖与已验证配置。 / Database override and validated configuration.
+    /// @return 已装配应用或结构化诊断。 / Assembled application or a structured diagnostic.
+    /// @example 从配置打开可复用库门面。 / Open the reusable library facade from configuration.
+    /// ```no_run
+    /// # use promptr::{Diagnostic, Promptr, PromptrOptions};
+    /// # use promptr::infrastructure::config::Config;
+    /// # fn example(config: Config) -> Result<(), Diagnostic> {
+    /// let mut app = Promptr::open(PromptrOptions {
+    ///     database_path: Some("catalog.sqlite".into()),
+    ///     config,
+    /// })?;
+    /// let values = app.eval("LIST;", promptr::InvocationPolicy::script())?;
+    /// # let _ = values;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn open(options: PromptrOptions) -> Result<Self> {
+        let PromptrOptions {
+            database_path,
+            mut config,
+        } = options;
+        let database_path = database_path.unwrap_or_else(|| config.database.path.clone());
+        if let Some(parent) = database_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(|error| {
+                Diagnostic::error(
+                    "E_DATABASE_PARENT",
+                    DiagnosticCategory::External,
+                    format!("could not create database directory `{}`", parent.display()),
+                )
+                .with_cause(error.to_string())
+            })?;
+        }
+        config.database.path = database_path.clone();
+        let sqlite_options = SqliteOptions::from(&config.database);
+        let database = SqliteDatabase::open_with_options(database_path, sqlite_options)?;
+        Ok(Self::from_parts(Box::new(database), config))
+    }
+
     /// @brief 从已装配依赖构造门面。 / Construct the facade from assembled dependencies.
     /// @param database 数据库端口。 / Database port.
     /// @param config 已验证配置。 / Validated configuration.
@@ -96,5 +145,61 @@ impl Promptr {
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// @brief 查询持久化适配器的外部变化令牌。 / Query the persistence adapter's external-change token.
+    /// @return 支持时返回令牌，否则返回 None。 / Token when supported, otherwise None.
+    pub fn change_token(&self) -> Result<Option<u64>> {
+        self.database.change_token()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::config::ConfigPaths;
+
+    /// @brief 构造隔离的默认配置。 / Build isolated default configuration.
+    fn config(root: &std::path::Path) -> Config {
+        Config::defaults(&ConfigPaths {
+            user_config: root.join("config.toml"),
+            database: root.join("configured.sqlite"),
+            state_dir: root.join("state"),
+            cache_dir: root.join("cache"),
+            backup_dir: root.join("backup"),
+        })
+    }
+
+    #[test]
+    fn open_honors_database_override_and_creates_parent() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("nested").join("override.sqlite");
+        let mut app = Promptr::open(PromptrOptions {
+            database_path: Some(database.clone()),
+            config: config(directory.path()),
+        })
+        .unwrap();
+
+        assert_eq!(app.config().database.path, database);
+        assert!(app.config().database.path.exists());
+        assert_eq!(
+            app.eval("LIST;", InvocationPolicy::script()).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn open_uses_configured_database_without_an_override() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = config(directory.path());
+        let configured = config.database.path.clone();
+        let app = Promptr::open(PromptrOptions {
+            database_path: None,
+            config,
+        })
+        .unwrap();
+
+        assert_eq!(app.config().database.path, configured);
+        assert!(configured.exists());
     }
 }

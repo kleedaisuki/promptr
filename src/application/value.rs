@@ -4,13 +4,16 @@ use crate::domain::{Metadata, NodeId, NodeKind, Revision, SearchHit, Symbol};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     fmt,
-    io::{self, Read, Write},
+    io::{self, BufWriter, Read, Write},
     sync::Arc,
 };
 use tempfile::{Builder, NamedTempFile};
 
 /// @brief XML 在内存中保留的最大字节数。 / Maximum XML bytes retained in memory.
 pub const XML_MEMORY_LIMIT: usize = 16 * 1024 * 1024;
+
+/// @brief 落盘 XML 的固定写缓冲区字节数。 / Fixed write-buffer size for spilled XML.
+const XML_SPILL_BUFFER_SIZE: usize = 64 * 1024;
 
 /// @brief 规范 XML 的共享存储。 / Shared storage for canonical XML.
 enum XmlStorage {
@@ -71,31 +74,25 @@ impl CanonicalXml {
     /// @param budget 最大 UTF-8 字节数。 / Maximum UTF-8 bytes.
     /// @return 不拆分字符的前缀。 / Prefix that does not split a character.
     pub fn preview(&self, budget: usize) -> io::Result<String> {
-        struct Sink {
-            bytes: Vec<u8>,
-            budget: usize,
-        }
-        impl Write for Sink {
-            fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-                let n = input
-                    .len()
-                    .min(self.budget.saturating_sub(self.bytes.len()));
-                self.bytes.extend_from_slice(&input[..n]);
-                Ok(input.len())
+        let prefix_len = budget.min(self.len);
+        let mut bytes = match self.storage.as_ref() {
+            XmlStorage::Memory(bytes) => bytes[..prefix_len].to_vec(),
+            XmlStorage::Spilled(file) => {
+                // 最多多读一个 UTF-8 标量值的尾部；绝不遍历整个溢出文件。
+                // Read at most one UTF-8 scalar tail; never scan the whole spilled file.
+                let read_limit = budget.saturating_add(3).min(self.len);
+                let mut bytes = Vec::with_capacity(read_limit);
+                file.reopen()?
+                    .take(read_limit as u64)
+                    .read_to_end(&mut bytes)?;
+                bytes.truncate(prefix_len);
+                bytes
             }
-            fn flush(&mut self) -> io::Result<()> {
-                Ok(())
-            }
-        }
-        let mut sink = Sink {
-            bytes: Vec::with_capacity(budget.min(self.len)),
-            budget,
         };
-        self.write_to(&mut sink)?;
-        while std::str::from_utf8(&sink.bytes).is_err() {
-            sink.bytes.pop();
+        while std::str::from_utf8(&bytes).is_err() {
+            bytes.pop();
         }
-        String::from_utf8(sink.bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// @brief 返回 XML 是否包含文本模式。 / Return whether XML contains a text pattern.
@@ -110,6 +107,15 @@ impl CanonicalXml {
         match self.storage.as_ref() {
             XmlStorage::Spilled(file) => Some(file.path().to_owned()),
             XmlStorage::Memory(_) => None,
+        }
+    }
+
+    /// @brief 返回该值实际占用的聚合内存预算。 / Return the aggregate memory budget occupied by this value.
+    /// @return 内存值的字节数；落盘值返回零。 / Byte length for memory values; zero for spilled values.
+    pub(crate) fn resident_len(&self) -> usize {
+        match self.storage.as_ref() {
+            XmlStorage::Memory(bytes) => bytes.len(),
+            XmlStorage::Spilled(_) => 0,
         }
     }
 }
@@ -199,7 +205,7 @@ pub struct SpillWriter {
 }
 enum SpillState {
     Memory(Vec<u8>),
-    Spilled(NamedTempFile),
+    Spilled(BufWriter<NamedTempFile>),
 }
 
 impl SpillWriter {
@@ -227,7 +233,11 @@ impl SpillWriter {
         self.flush()?;
         let storage = match self.state {
             SpillState::Memory(v) => XmlStorage::Memory(v),
-            SpillState::Spilled(f) => XmlStorage::Spilled(f),
+            SpillState::Spilled(writer) => XmlStorage::Spilled(
+                writer
+                    .into_inner()
+                    .map_err(std::io::IntoInnerError::into_error)?,
+            ),
         };
         Ok(CanonicalXml {
             storage: Arc::new(storage),
@@ -235,10 +245,11 @@ impl SpillWriter {
         })
     }
 
-    fn spill(memory: &[u8]) -> io::Result<NamedTempFile> {
-        let mut file = Builder::new().prefix("promptr-xml-").tempfile()?;
-        file.write_all(memory)?;
-        Ok(file)
+    fn spill(memory: &[u8]) -> io::Result<BufWriter<NamedTempFile>> {
+        let file = Builder::new().prefix("promptr-xml-").tempfile()?;
+        let mut writer = BufWriter::with_capacity(XML_SPILL_BUFFER_SIZE, file);
+        writer.write_all(memory)?;
+        Ok(writer)
     }
 }
 impl Default for SpillWriter {
@@ -258,23 +269,23 @@ impl Write for SpillWriter {
                 self.len = next_len;
                 return Ok(input.len());
             }
-            let mut file = Self::spill(memory)?;
-            file.write_all(input)?;
-            self.state = SpillState::Spilled(file);
+            let mut writer = Self::spill(memory)?;
+            writer.write_all(input)?;
+            self.state = SpillState::Spilled(writer);
             self.len = next_len;
             return Ok(input.len());
         }
-        let SpillState::Spilled(file) = &mut self.state else {
+        let SpillState::Spilled(writer) = &mut self.state else {
             unreachable!()
         };
-        let written = file.write(input)?;
+        let written = writer.write(input)?;
         self.len += written;
         Ok(written)
     }
     fn flush(&mut self) -> io::Result<()> {
         match &mut self.state {
             SpillState::Memory(_) => Ok(()),
-            SpillState::Spilled(file) => file.flush(),
+            SpillState::Spilled(writer) => writer.flush(),
         }
     }
 }
@@ -341,11 +352,41 @@ mod tests {
         drop(clone);
         assert!(!path.exists());
     }
+
+    #[test]
+    fn spilled_writer_preserves_many_small_writes() {
+        let mut writer = SpillWriter::with_threshold(31);
+        let mut expected = Vec::new();
+        for index in 0..200_000_u32 {
+            let byte = b'a' + (index % 26) as u8;
+            writer.write_all(&[byte]).unwrap();
+            expected.push(byte);
+        }
+        let xml = writer.finish().unwrap();
+        assert!(xml.spilled_path().is_some());
+        let mut actual = Vec::new();
+        xml.write_to(&mut actual).unwrap();
+        assert_eq!(actual, expected);
+    }
     #[test]
     fn json_keeps_xml_as_a_string() {
         assert_eq!(
             serde_json::to_value(Value::Xml("<Leaf/>\n".into())).unwrap(),
             serde_json::json!({"type":"xml", "value":"<Leaf/>\n"})
         );
+    }
+
+    #[test]
+    fn spilled_preview_reads_a_bounded_utf8_prefix() {
+        let prefix = "x".repeat(XML_MEMORY_LIMIT);
+        let content = format!("{prefix}猫tail-that-must-not-be-scanned");
+        let mut writer = SpillWriter::new();
+        writer.write_all(content.as_bytes()).unwrap();
+        let xml = writer.finish().unwrap();
+        assert!(xml.spilled_path().is_some());
+
+        assert_eq!(xml.preview(7).unwrap(), "xxxxxxx");
+        assert_eq!(xml.preview(XML_MEMORY_LIMIT + 1).unwrap(), prefix);
+        assert_eq!(xml.preview(0).unwrap(), "");
     }
 }

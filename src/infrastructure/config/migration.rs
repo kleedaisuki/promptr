@@ -9,7 +9,10 @@ use fs2::FileExt;
 use tempfile::NamedTempFile;
 use toml_edit::{DocumentMut, value};
 
-use super::{CURRENT_SCHEMA_VERSION, ConfigDiagnostic, ParsedConfig};
+use super::{
+    CURRENT_SCHEMA_VERSION, ConfigDiagnostic, ConfigLayer, ConfigLoader, ConfigPaths, ConfigSource,
+    ParsedConfig, RawConfig,
+};
 
 /// @brief 配置迁移操作结果 / Configuration migration operation result.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +46,7 @@ pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>
     if !parsed.diagnostics.is_empty() {
         return Err(parsed.diagnostics);
     }
+    validate_standalone(parsed.raw, path)?;
     let version = parsed.input_schema_version;
     if version < CURRENT_SCHEMA_VERSION {
         Ok(MigrationOutcome::WouldMigrate {
@@ -50,7 +54,6 @@ pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>
             to: CURRENT_SCHEMA_VERSION,
         })
     } else {
-        parsed.raw.validate_at(&path.display().to_string())?;
         Ok(MigrationOutcome::AlreadyCurrent)
     }
 }
@@ -74,14 +77,14 @@ pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnosti
     }
     let from = parsed.input_schema_version;
     if from == CURRENT_SCHEMA_VERSION {
-        parsed.raw.validate_at(&path.display().to_string())?;
+        validate_standalone(parsed.raw, path)?;
         return Ok(MigrationOutcome::AlreadyCurrent);
     }
     let mut document = parsed.document;
     upgrade_document(&mut document, from)?;
     let migrated = document.to_string();
     let checked = ParsedConfig::parse(&migrated, path.display().to_string())?;
-    checked.raw.validate_at(&path.display().to_string())?;
+    validate_standalone(checked.raw, path)?;
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temporary =
@@ -132,6 +135,42 @@ pub(super) fn upgrade_document(
         }
     }
     Ok(())
+}
+
+/// @brief 按完整独立配置语义验证迁移结果 / Validates a migration result as a complete standalone configuration.
+/// @param raw 已升级至当前模式的原始配置 / Raw configuration upgraded to the current schema.
+/// @param path 配置文件路径 / Configuration file path.
+/// @return 配置有效时返回空值，否则返回全部诊断 / Unit on success, or all diagnostics.
+/// @note 普通分层加载仍允许跨层补全字段；该检查仅用于独立文件检查与迁移 / Ordinary layered loading may still complete fields across layers; this check is only for standalone checking and migration.
+fn validate_standalone(raw: RawConfig, path: &Path) -> Result<(), Vec<ConfigDiagnostic>> {
+    let source = path.display().to_string();
+    let overlay = raw.validate_at(&source)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let paths = ConfigPaths {
+        user_config: path.to_path_buf(),
+        database: parent.join("promptr.db"),
+        state_dir: parent.to_path_buf(),
+        cache_dir: parent.to_path_buf(),
+        backup_dir: parent.to_path_buf(),
+    };
+    ConfigLoader::new(paths)
+        .merge(vec![ConfigLayer {
+            source: ConfigSource::ExplicitFile(path.to_path_buf()),
+            overlay,
+        }])
+        .map(|_| ())
+        .map_err(|diagnostics| {
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| {
+                    if diagnostic.source.is_none() {
+                        diagnostic.with_source(source.clone())
+                    } else {
+                        diagnostic
+                    }
+                })
+                .collect()
+        })
 }
 
 struct ConfigLock {
@@ -222,6 +261,47 @@ mod tests {
             MigrationOutcome::WouldMigrate { from: 0, to: 1 }
         ));
         assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn check_validates_migrated_old_config_without_rewriting() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let original = b"schema_version = 0\n[editor]\nmode = \"external\"\n";
+        fs::write(&path, original).unwrap();
+
+        let diagnostics = check_file(&path).unwrap_err();
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "E_CONFIG_EDITOR")
+        );
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn explicit_migration_validates_before_writing_or_backing_up() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let original = b"schema_version = 0\n[editor]\nmode = \"external\"\n";
+        fs::write(&path, original).unwrap();
+
+        let diagnostics = migrate_file(&path).unwrap_err();
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "E_CONFIG_EDITOR")
+        );
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(!fs::read_dir(directory.path()).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".bak.")
+        }));
     }
 
     #[test]

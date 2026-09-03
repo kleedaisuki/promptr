@@ -93,8 +93,8 @@ pub enum Op {
     Search {
         /// @brief 查询文本。 / Query text.
         query: String,
-        /// @brief 搜索字段。 / Search field.
-        field: SearchField,
+        /// @brief 显式搜索字段；None 表示使用运行时配置。 / Explicit search field; None uses runtime configuration.
+        field: Option<SearchField>,
         /// @brief FIND 的可选提示根。 / Optional prompt root for FIND.
         root: Option<Symbol>,
     },

@@ -119,7 +119,7 @@ impl Compiler {
             Statement::Search { query, field } => {
                 self.ops.push(Op::Search {
                     query: query.value.clone(),
-                    field: map_search_field(*field),
+                    field: field.map(map_search_field),
                     root: None,
                 });
                 Ok(())
@@ -132,7 +132,7 @@ impl Compiler {
                 let root = self.resolve_kind(prompt, NodeKind::Prompt, "FIND root")?;
                 self.ops.push(Op::Search {
                     query: query.value.clone(),
-                    field: map_search_field(*field),
+                    field: field.map(map_search_field),
                     root: Some(root),
                 });
                 Ok(())
@@ -827,7 +827,7 @@ mod tests {
         let find = program(vec![Statement::Find {
             query: spanned("x"),
             prompt: spanned("Leaf"),
-            field: AstSearchField::Mixed,
+            field: Some(AstSearchField::Mixed),
         }]);
         assert_eq!(
             compile(&find, &catalog, InvocationPolicy::interactive())
@@ -835,5 +835,20 @@ mod tests {
                 .code,
             "E0103"
         );
+    }
+
+    #[test]
+    fn search_ir_preserves_an_omitted_field() {
+        let source = program(vec![Statement::Search {
+            query: spanned("needle"),
+            field: None,
+        }]);
+        let checked = compile(
+            &source,
+            &CatalogSnapshot::default(),
+            InvocationPolicy::script(),
+        )
+        .unwrap();
+        assert!(matches!(&checked.ops[0], Op::Search { field: None, .. }));
     }
 }

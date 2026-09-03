@@ -14,6 +14,74 @@ use crate::{
 use nucleo_matcher::{Config as MatcherConfig, Matcher, Utf32Str};
 use std::collections::BTreeMap;
 
+/// @brief 单次求值固定的搜索配置。 / Search configuration fixed for one evaluation.
+#[derive(Clone, Copy)]
+struct SearchSettings {
+    /// @brief DSL 省略 FROM 时采用的字段。 / Field used when DSL omits FROM.
+    default_field: SearchField,
+    /// @brief 本次求值采用的匹配算法。 / Matching algorithm used by this evaluation.
+    matcher: SearchMatcher,
+}
+
+/// @brief 运行时支持的搜索匹配算法。 / Search matching algorithms supported by the runtime.
+#[derive(Clone, Copy)]
+enum SearchMatcher {
+    /// @brief Nucleo 模糊匹配。 / Nucleo fuzzy matching.
+    Fuzzy,
+    /// @brief 大小写敏感的子串匹配。 / Case-sensitive substring matching.
+    Exact,
+}
+
+impl SearchSettings {
+    /// @brief 从已验证配置构造运行时设置。 / Build runtime settings from validated configuration.
+    /// @param config 已验证搜索配置。 / Validated search configuration.
+    /// @return 领域字段与匹配器的稳定映射。 / Stable mapping to domain field and matcher.
+    const fn from_config(config: &crate::infrastructure::config::SearchConfig) -> Self {
+        use crate::infrastructure::config::{SearchField as Field, SearchMatcher as Matcher};
+        let default_field = match config.field {
+            Field::Title => SearchField::Title,
+            Field::Content => SearchField::Content,
+            Field::Mixed => SearchField::Mixed,
+        };
+        let matcher = match config.matcher {
+            Matcher::Fuzzy => SearchMatcher::Fuzzy,
+            Matcher::Exact => SearchMatcher::Exact,
+        };
+        Self {
+            default_field,
+            matcher,
+        }
+    }
+}
+
+/// @brief 单次求值共享的 XML 常驻内存预算。 / XML resident-memory budget shared by one evaluation.
+struct XmlMemoryBudget {
+    /// @brief 尚可常驻内存的 XML 字节数。 / XML bytes still allowed to remain resident.
+    remaining: usize,
+}
+
+impl XmlMemoryBudget {
+    /// @brief 创建默认的 16 MiB 聚合预算。 / Create the default aggregate 16 MiB budget.
+    /// @return 空预算计数器。 / Empty budget counter.
+    const fn new() -> Self {
+        Self {
+            remaining: crate::application::value::XML_MEMORY_LIMIT,
+        }
+    }
+
+    /// @brief 为下一个 XML 值创建受剩余额度约束的写入器。 / Create a writer constrained by the remaining allowance.
+    /// @return 不会令该次求值总常驻 XML 超额的写入器。 / Writer that cannot exceed this evaluation's resident XML allowance.
+    fn writer(&self) -> SpillWriter {
+        SpillWriter::with_threshold(self.remaining)
+    }
+
+    /// @brief 记账一个完成的 XML 值。 / Account for one completed XML value.
+    /// @param xml 已完成、即将进入返回值的 XML。 / Completed XML about to enter returned values.
+    fn account(&mut self, xml: &crate::application::CanonicalXml) {
+        self.remaining = self.remaining.saturating_sub(xml.resident_len());
+    }
+}
+
 #[derive(Clone)]
 /// @brief 已准备正文及其锁外身份。 / Prepared body and its identity captured outside the writer lock.
 struct PreparedFragment {
@@ -67,14 +135,15 @@ pub(crate) fn eval(
     let Some(prepared) = prepare_fragments(&checked, &advisory_snapshot, provider)? else {
         return Ok(Vec::new());
     };
+    let search_settings = SearchSettings::from_config(&app.config.search);
     if !checked.is_mutating() {
-        return interpret_read_only(&checked, &advisory_snapshot);
+        return interpret_read_only(&checked, &advisory_snapshot, search_settings);
     }
     let mut operation = |transaction: &mut dyn CatalogWrite| {
         let authoritative = transaction.snapshot()?;
         let mut program = crate::language::compile(&ast, &authoritative, policy)?;
         inject_prepared(&mut program, &prepared, &authoritative)?;
-        interpret_transaction(&program, transaction, &authoritative)
+        interpret_transaction(&program, transaction, &authoritative, search_settings)
     };
     app.database.write_transaction(&mut operation)
 }
@@ -276,11 +345,16 @@ fn inject_prepared(
 }
 
 /// @brief 在一个不可变快照上执行纯查询。 / Execute pure queries on one immutable snapshot.
-fn interpret_read_only(program: &CheckedProgram, snapshot: &CatalogSnapshot) -> Result<Vec<Value>> {
+fn interpret_read_only(
+    program: &CheckedProgram,
+    snapshot: &CatalogSnapshot,
+    search_settings: SearchSettings,
+) -> Result<Vec<Value>> {
+    let mut budget = XmlMemoryBudget::new();
     program
         .ops
         .iter()
-        .map(|op| interpret_query(op, snapshot))
+        .map(|op| interpret_query(op, snapshot, &mut budget, search_settings))
         .collect()
 }
 
@@ -289,8 +363,10 @@ fn interpret_transaction(
     program: &CheckedProgram,
     transaction: &mut dyn CatalogWrite,
     authoritative: &CatalogSnapshot,
+    search_settings: SearchSettings,
 ) -> Result<Vec<Value>> {
     let mut values = Vec::with_capacity(program.ops.len());
+    let mut budget = XmlMemoryBudget::new();
     let mut state = authoritative
         .iter_by_symbol()
         .map(|node| {
@@ -368,7 +444,7 @@ fn interpret_transaction(
             }
             query => {
                 let snapshot = transaction.snapshot()?;
-                interpret_query(query, &snapshot)?
+                interpret_query(query, &snapshot, &mut budget, search_settings)?
             }
         };
         values.push(value);
@@ -421,7 +497,12 @@ fn next_revision(revision: crate::domain::Revision) -> Result<crate::domain::Rev
 }
 
 /// @brief 解释一个无副作用操作。 / Interpret one side-effect-free operation.
-fn interpret_query(op: &Op, snapshot: &CatalogSnapshot) -> Result<Value> {
+fn interpret_query(
+    op: &Op,
+    snapshot: &CatalogSnapshot,
+    budget: &mut XmlMemoryBudget,
+    search_settings: SearchSettings,
+) -> Result<Value> {
     match op {
         Op::List { filter } => Ok(Value::Nodes(
             snapshot
@@ -439,14 +520,15 @@ fn interpret_query(op: &Op, snapshot: &CatalogSnapshot) -> Result<Value> {
         Op::Search { query, field, root } => Ok(Value::SearchResults(search(
             snapshot,
             query,
-            *field,
+            field.unwrap_or(search_settings.default_field),
             root.as_ref(),
+            search_settings.matcher,
         )?)),
         Op::RenderXml { root } => {
             let node = snapshot
                 .get_by_symbol(root)
                 .ok_or_else(|| unknown_symbol(root))?;
-            let mut writer = SpillWriter::new();
+            let mut writer = budget.writer();
             snapshot
                 .render_xml(node.header.id, &mut writer)
                 .map_err(|error| {
@@ -457,14 +539,16 @@ fn interpret_query(op: &Op, snapshot: &CatalogSnapshot) -> Result<Value> {
                     )
                     .with_cause(error.to_string())
                 })?;
-            Ok(Value::Xml(writer.finish().map_err(|error| {
+            let xml = writer.finish().map_err(|error| {
                 Diagnostic::error(
                     "E_RENDER_IO",
                     DiagnosticCategory::External,
                     "canonical XML spool finalization failed",
                 )
                 .with_cause(error.to_string())
-            })?))
+            })?;
+            budget.account(&xml);
+            Ok(Value::Xml(xml))
         }
         _ => Err(internal_program_mismatch()),
     }
@@ -517,6 +601,7 @@ fn search(
     query: &str,
     field: SearchField,
     root: Option<&Symbol>,
+    matcher_kind: SearchMatcher,
 ) -> Result<Vec<SearchHit>> {
     let occurrences = if let Some(root) = root {
         let root = snapshot
@@ -549,14 +634,16 @@ fn search(
         if let Some(score) = match_score(
             &mut matcher,
             needle,
+            query,
             node.header.symbol.as_str(),
             text.as_str(),
             field,
+            matcher_kind,
         ) {
             hits.push(SearchHit {
                 node_id: node.header.id,
                 symbol: node.header.symbol.clone(),
-                score: f64::from(score),
+                score,
                 occurrence_count: occurrences.get(&node.header.id).copied().unwrap_or(1),
             });
         }
@@ -568,20 +655,34 @@ fn search(
 fn match_score(
     matcher: &mut Matcher,
     needle: Utf32Str<'_>,
+    query: &str,
     title: &str,
     content: &str,
     field: SearchField,
-) -> Option<u16> {
+    matcher_kind: SearchMatcher,
+) -> Option<f64> {
     fn one(matcher: &mut Matcher, needle: Utf32Str<'_>, value: &str) -> Option<u16> {
         let mut buffer = Vec::new();
         matcher.fuzzy_match(Utf32Str::new(value, &mut buffer), needle)
     }
-    match field {
-        SearchField::Title => one(matcher, needle, title),
-        SearchField::Content => one(matcher, needle, content),
-        SearchField::Mixed => match (one(matcher, needle, title), one(matcher, needle, content)) {
-            (None, None) => None,
-            (a, b) => Some(a.unwrap_or(0).saturating_add(b.unwrap_or(0))),
+    fn exact(needle: &str, value: &str) -> Option<f64> {
+        value.contains(needle).then_some(1.0)
+    }
+    match matcher_kind {
+        SearchMatcher::Exact => match field {
+            SearchField::Title => exact(query, title),
+            SearchField::Content => exact(query, content),
+            SearchField::Mixed => exact(query, title).or_else(|| exact(query, content)),
+        },
+        SearchMatcher::Fuzzy => match field {
+            SearchField::Title => one(matcher, needle, title).map(f64::from),
+            SearchField::Content => one(matcher, needle, content).map(f64::from),
+            SearchField::Mixed => {
+                match (one(matcher, needle, title), one(matcher, needle, content)) {
+                    (None, None) => None,
+                    (a, b) => Some(f64::from(a.unwrap_or(0).saturating_add(b.unwrap_or(0)))),
+                }
+            }
         },
     }
 }
@@ -830,6 +931,67 @@ mod tests {
     }
 
     #[test]
+    fn configured_search_field_applies_only_when_from_is_omitted() {
+        let (mut app, _) = app(vec![fragment(1, "NeedleTitle", "plain body")], false);
+        app.config.search.field = crate::infrastructure::config::SearchField::Content;
+
+        let values = app
+            .eval(
+                "SEARCH \"NeedleTitle\"; SEARCH \"NeedleTitle\" FROM TITLE;",
+                InvocationPolicy::script(),
+            )
+            .unwrap();
+        assert!(matches!(&values[0], Value::SearchResults(hits) if hits.is_empty()));
+        assert!(matches!(&values[1], Value::SearchResults(hits) if hits.len() == 1));
+    }
+
+    #[test]
+    fn exact_search_is_a_case_sensitive_substring_not_a_fuzzy_match() {
+        let nodes = vec![fragment(1, "needletitle", "plain body")];
+        let (mut fuzzy, _) = app(nodes.clone(), false);
+        fuzzy.config.search.matcher = crate::infrastructure::config::SearchMatcher::Fuzzy;
+        let fuzzy_values = fuzzy
+            .eval("SEARCH \"ndl\" FROM TITLE;", InvocationPolicy::script())
+            .unwrap();
+        assert!(matches!(&fuzzy_values[0], Value::SearchResults(hits) if hits.len() == 1));
+
+        let (mut exact, _) = app(nodes, false);
+        exact.config.search.matcher = crate::infrastructure::config::SearchMatcher::Exact;
+        let exact_values = exact
+            .eval(
+                "SEARCH \"ndl\" FROM TITLE; SEARCH \"needle\" FROM TITLE; SEARCH \"Needle\" FROM TITLE;",
+                InvocationPolicy::script(),
+            )
+            .unwrap();
+        assert!(matches!(&exact_values[0], Value::SearchResults(hits) if hits.is_empty()));
+        assert!(
+            matches!(&exact_values[1], Value::SearchResults(hits) if hits.len() == 1 && hits[0].score == 1.0)
+        );
+        assert!(matches!(&exact_values[2], Value::SearchResults(hits) if hits.is_empty()));
+    }
+
+    #[test]
+    fn find_uses_configured_matching_while_preserving_reachable_scope() {
+        let nodes = vec![
+            fragment(1, "Inside", "exact needle"),
+            fragment(2, "Outside", "exact needle"),
+            prompt(3, "Root", vec![NodeId::new(1).unwrap()]),
+        ];
+        let (mut app, _) = app(nodes, false);
+        app.config.search.field = crate::infrastructure::config::SearchField::Content;
+        app.config.search.matcher = crate::infrastructure::config::SearchMatcher::Exact;
+
+        let values = app
+            .eval("FIND \"needle\" ON Root;", InvocationPolicy::script())
+            .unwrap();
+        assert!(matches!(
+            &values[0],
+            Value::SearchResults(hits)
+                if hits.len() == 1 && hits[0].symbol.as_str() == "Inside"
+        ));
+    }
+
+    #[test]
     fn capability_rejection_precedes_provider_and_transaction() {
         let (mut app, shared) = app(Vec::new(), false);
         let mut provider = CountingProvider::default();
@@ -857,6 +1019,54 @@ mod tests {
             .clone()
             .expect("render must have crossed the spill threshold");
         assert!(!path.exists(), "rolled-back value retained its spool");
+    }
+
+    #[test]
+    fn read_only_outputs_share_one_aggregate_memory_budget() {
+        let body = "x".repeat(9 * 1024 * 1024);
+        let (mut app, _) = app(
+            vec![fragment(1, "First", &body), fragment(2, "Second", &body)],
+            false,
+        );
+        let values = app
+            .eval("OUTPUT First; OUTPUT Second;", InvocationPolicy::script())
+            .unwrap();
+        let Value::Xml(first) = &values[0] else {
+            panic!("first result must be XML")
+        };
+        let Value::Xml(second) = &values[1] else {
+            panic!("second result must be XML")
+        };
+        assert!(first.spilled_path().is_none());
+        assert!(second.spilled_path().is_some());
+        assert!(first.len() < crate::application::value::XML_MEMORY_LIMIT);
+        assert!(second.len() < crate::application::value::XML_MEMORY_LIMIT);
+        assert!(first.len() + second.len() > crate::application::value::XML_MEMORY_LIMIT);
+    }
+
+    #[test]
+    fn aggregate_spool_is_removed_when_transaction_commit_fails() {
+        let body = "x".repeat(9 * 1024 * 1024);
+        let (mut app, shared) = app(
+            vec![fragment(1, "First", &body), fragment(2, "Second", &body)],
+            true,
+        );
+        let error = app
+            .eval(
+                concat!(
+                    "OUTPUT First; OUTPUT Second; ",
+                    "METADATA First DESCRIPTION \"changed\";"
+                ),
+                InvocationPolicy::script(),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, "E_COMMIT");
+        let path = shared
+            .borrow()
+            .failed_spool
+            .clone()
+            .expect("the second individually-small output must consume the aggregate spill");
+        assert!(!path.exists(), "rolled-back aggregate spool was retained");
     }
 
     #[test]
@@ -949,6 +1159,7 @@ mod tests {
             "Needle",
             SearchField::Title,
             Some(&Symbol::new("P66").unwrap()),
+            SearchMatcher::Fuzzy,
         )
         .unwrap();
         assert_eq!(hits.len(), 1);
