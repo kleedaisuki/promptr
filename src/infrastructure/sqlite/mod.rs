@@ -1,4 +1,10 @@
 //! SQLite 持久化适配器。 / SQLite persistence adapter.
+//!
+//! 本模块将领域目录持久化为 SQLite 规范表，并维护可重建的 FTS5 派生索引。
+//! This module persists the domain catalog in canonical SQLite tables and maintains a
+//! rebuildable derived FTS5 index.
+//!
+//! <!-- @brief SQLite 持久化适配器。 / SQLite persistence adapter. -->
 
 use std::{
     collections::BTreeMap,
@@ -24,34 +30,56 @@ use crate::{
     },
 };
 
-/// @brief Promptr SQLite 文件标识。 / Promptr SQLite application identifier.
+/// Promptr SQLite 文件标识。 / Promptr SQLite application identifier.
+///
+/// <!-- @brief Promptr SQLite 文件标识。 / Promptr SQLite application identifier. -->
 pub const APPLICATION_ID: i32 = 0x5052_4d50;
-/// @brief 当前可读写的数据库版本。 / Current readable and writable database version.
+/// 当前可读写的数据库版本。 / Current readable and writable database version.
+///
+/// <!-- @brief 当前可读写的数据库版本。 / Current readable and writable database version. -->
 pub const SCHEMA_VERSION: i32 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_millis(2_000);
 const MIGRATION_NAME: &str = "0001_initial";
 
-/// @brief SQLite 持久日志模式。 / SQLite persistent journal mode.
+/// SQLite 持久日志模式。 / SQLite persistent journal mode.
+///
+/// <!-- @brief SQLite 持久日志模式。 / SQLite persistent journal mode. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SqliteJournalMode {
-    /// @brief 预写日志。 / Write-ahead logging.
+    /// 预写日志。 / Write-ahead logging.
+    ///
+    /// <!-- @brief 预写日志。 / Write-ahead logging. -->
     Wal,
-    /// @brief 回滚日志。 / Rollback journal.
+    /// 回滚日志。 / Rollback journal.
+    ///
+    /// <!-- @brief 回滚日志。 / Rollback journal. -->
     Delete,
 }
 
-/// @brief 与配置层无关的 SQLite 强类型打开选项。 / Strongly typed SQLite open options independent of the configuration layer.
+/// 与配置层无关的 SQLite 强类型打开选项。 / Strongly typed SQLite open options independent of the configuration layer.
+///
+/// <!-- @brief 与配置层无关的 SQLite 强类型打开选项。 / Strongly typed SQLite open options independent of the configuration layer. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SqliteOptions {
-    /// @brief 日志模式。 / Journal mode.
+    /// 日志模式。 / Journal mode.
+    ///
+    /// <!-- @brief 日志模式。 / Journal mode. -->
     pub journal_mode: SqliteJournalMode,
-    /// @brief 写锁的有界等待时间。 / Bounded writer-lock wait.
+    /// 写锁的有界等待时间。 / Bounded writer-lock wait.
+    ///
+    /// <!-- @brief 写锁的有界等待时间。 / Bounded writer-lock wait. -->
     pub busy_timeout: Duration,
-    /// @brief 是否自动执行旧版本迁移。 / Whether old schemas are migrated automatically.
+    /// 是否自动执行旧版本迁移。 / Whether old schemas are migrated automatically.
+    ///
+    /// <!-- @brief 是否自动执行旧版本迁移。 / Whether old schemas are migrated automatically. -->
     pub auto_migrate: bool,
-    /// @brief 迁移前是否创建备份。 / Whether to create a backup before migration.
+    /// 迁移前是否创建备份。 / Whether to create a backup before migration.
+    ///
+    /// <!-- @brief 迁移前是否创建备份。 / Whether to create a backup before migration. -->
     pub backup_before_migrate: bool,
-    /// @brief 迁移备份保留数。 / Migration-backup retention count.
+    /// 迁移备份保留数。 / Migration-backup retention count.
+    ///
+    /// <!-- @brief 迁移备份保留数。 / Migration-backup retention count. -->
     pub backup_keep: usize,
 }
 
@@ -100,50 +128,125 @@ const FTS_SQL: &str = r#"
 CREATE VIRTUAL TABLE node_fts USING fts5(node_id UNINDEXED, symbol, content, description, tags);
 "#;
 
-/// @brief 数据库头与迁移状态。 / Database header and migration status.
+/// 数据库头与迁移状态。 / Database header and migration status.
+///
+/// <!-- @brief 数据库头与迁移状态。 / Database header and migration status. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseStatus {
-    /// @brief 数据库路径，内存库为空。 / Database path, absent for an in-memory store.
+    /// 数据库路径，内存库为空。 / Database path, absent for an in-memory store.
+    ///
+    /// <!-- @brief 数据库路径，内存库为空。 / Database path, absent for an in-memory store. -->
     pub path: Option<PathBuf>,
-    /// @brief SQLite application_id。 / SQLite application_id.
+    /// SQLite `application_id`。 / SQLite `application_id`.
+    ///
+    /// <!-- @brief SQLite application_id。 / SQLite application_id. -->
     pub application_id: i32,
-    /// @brief SQLite user_version。 / SQLite user_version.
+    /// SQLite `user_version`。 / SQLite `user_version`.
+    ///
+    /// <!-- @brief SQLite user_version。 / SQLite user_version. -->
     pub user_version: i32,
-    /// @brief 迁移台账最高版本。 / Highest migration-ledger version.
+    /// 迁移台账最高版本。 / Highest migration-ledger version.
+    ///
+    /// <!-- @brief 迁移台账最高版本。 / Highest migration-ledger version. -->
     pub ledger_version: Option<i32>,
-    /// @brief 当前程序能否正常解释该库。 / Whether this executable can interpret the database normally.
+    /// 当前程序能否正常解释该库。 / Whether this executable can interpret the database normally.
+    ///
+    /// <!-- @brief 当前程序能否正常解释该库。 / Whether this executable can interpret the database normally. -->
     pub compatible: bool,
 }
 
-/// @brief 数据库一致性检查结果。 / Database consistency-check result.
+/// 数据库一致性检查结果。 / Database consistency-check result.
+///
+/// <!-- @brief 数据库一致性检查结果。 / Database consistency-check result. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckReport {
-    /// @brief integrity_check/quick_check 的原始行。 / Raw integrity-check rows.
+    /// `integrity_check` 或 `quick_check` 的原始行。 / Raw `integrity_check` or `quick_check` rows.
+    ///
+    /// <!-- @brief integrity_check/quick_check 的原始行。 / Raw integrity-check rows. -->
     pub integrity: Vec<String>,
-    /// @brief foreign_key_check 返回的违规数。 / Number of foreign-key violations.
+    /// `foreign_key_check` 返回的违规数。 / Number of violations returned by `foreign_key_check`.
+    ///
+    /// <!-- @brief foreign_key_check 返回的违规数。 / Number of foreign-key violations. -->
     pub foreign_key_violations: usize,
-    /// @brief 规范表能否恢复为有效领域快照。 / Whether canonical tables rehydrate a valid domain snapshot.
+    /// 规范表能否恢复为有效领域快照。 / Whether canonical tables rehydrate a valid domain snapshot.
+    ///
+    /// <!-- @brief 规范表能否恢复为有效领域快照。 / Whether canonical tables rehydrate a valid domain snapshot. -->
     pub domain_valid: bool,
 }
 
-/// @brief 同步 SQLite 数据库适配器。 / Synchronous SQLite database adapter.
+/// 同步 SQLite 数据库适配器。 / Synchronous SQLite database adapter.
+///
+/// 连接由互斥锁串行化，以满足同步应用端口并保护事务边界。
+/// A mutex serializes the connection to satisfy the synchronous application port and protect
+/// transaction boundaries.
+///
+/// <!-- @brief 同步 SQLite 数据库适配器。 / Synchronous SQLite database adapter. -->
 pub struct SqliteDatabase {
     connection: Mutex<Connection>,
     path: Option<PathBuf>,
 }
 
 impl SqliteDatabase {
-    /// @brief 打开或创建本地 SQLite 数据库。 / Open or create a local SQLite database.
-    /// @param path 数据库文件路径。 / Database file path.
-    /// @return 已配置的适配器或诊断。 / Configured adapter or diagnostic.
+    /// 打开或创建本地 SQLite 数据库。 / Opens or creates a local SQLite database.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - 数据库文件路径。 / Database file path.
+    ///
+    /// # Returns
+    ///
+    /// 返回使用默认选项配置的适配器。 / Returns an adapter configured with default options.
+    ///
+    /// # Errors
+    ///
+    /// 当路径无法打开或规范化、SQLite 头部或目录无法读取、空数据库无法认领、连接策略
+    /// 无法建立，或已兼容数据库的 FTS5 索引无法验证或重建时，返回诊断。
+    /// Returns a diagnostic when the path cannot be opened or canonicalized, SQLite initialization
+    /// metadata cannot be read, an empty database cannot be claimed, connection policy cannot be
+    /// established, or the FTS5 index of an otherwise compatible database cannot be validated or
+    /// rebuilt.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use promptr::infrastructure::sqlite::SqliteDatabase;
+    ///
+    /// let database = SqliteDatabase::open("promptr.db")?;
+    /// # Ok::<(), promptr::Diagnostic>(())
+    /// ```
+    ///
+    /// <!-- @brief 打开或创建本地 SQLite 数据库。 / Open or create a local SQLite database. -->
+    /// <!-- @param path 数据库文件路径。 / Database file path. -->
+    /// <!-- @return 已配置的适配器或诊断。 / Configured adapter or diagnostic. -->
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_with_options(path, SqliteOptions::default())
     }
 
-    /// @brief 使用强类型选项打开或创建数据库。 / Open or create a database with strongly typed options.
-    /// @param path 数据库文件路径。 / Database file path.
-    /// @param options 与配置层解耦的 SQLite 选项。 / SQLite options decoupled from configuration.
-    /// @return 数据库适配器或诊断。 / Database adapter or diagnostic.
+    /// 使用强类型选项打开或创建数据库。 / Opens or creates a database with strongly typed options.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - 数据库文件路径。 / Database file path.
+    /// * `options` - 与配置层解耦的 SQLite 选项。 / SQLite options decoupled from configuration.
+    ///
+    /// # Returns
+    ///
+    /// 返回按给定选项配置的数据库适配器。 / Returns a database adapter configured with the supplied options.
+    ///
+    /// # Errors
+    ///
+    /// 当超时或备份保留策略无效、路径无法打开或规范化、SQLite 头部或目录无法读取、
+    /// 空数据库无法认领、连接策略无法建立，或已兼容数据库的 FTS5 索引无法验证或重建时，
+    /// 返回诊断。
+    /// Returns a diagnostic when timeout or backup-retention settings are invalid, the path cannot
+    /// be opened or canonicalized, SQLite initialization metadata cannot be read, an empty database
+    /// cannot be claimed, connection policy cannot be established, or the FTS5 index of an otherwise
+    /// compatible database cannot be validated or rebuilt.
+    ///
+    /// <!-- @brief 使用强类型选项打开或创建数据库。 / Open or create a database with strongly typed options. -->
+    /// <!-- @param path 数据库文件路径。 / Database file path. -->
+    /// <!-- @param options 与配置层解耦的 SQLite 选项。 / SQLite options decoupled from configuration. -->
+    /// <!-- @return 数据库适配器或诊断。 / Database adapter or diagnostic. -->
     pub fn open_with_options(path: impl AsRef<Path>, options: SqliteOptions) -> Result<Self> {
         validate_options(options)?;
         let path = path.as_ref().to_path_buf();
@@ -152,17 +255,62 @@ impl SqliteDatabase {
         Self::finish_open(connection, Some(path), false, true, options)
     }
 
-    /// @brief 以不创建模式打开已有数据库。 / Open an existing database without creating a missing path.
-    /// @param path 必须已存在的数据库路径。 / Database path that must already exist.
-    /// @return 数据库适配器或诊断。 / Database adapter or diagnostic.
+    /// 以不创建模式打开已有数据库。 / Opens an existing database without creating a missing path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - 必须已存在的数据库路径。 / Database path that must already exist.
+    ///
+    /// # Returns
+    ///
+    /// 返回使用默认选项配置的维护适配器。 / Returns a maintenance adapter configured with default options.
+    ///
+    /// # Errors
+    ///
+    /// 当文件不存在、无法以读写模式打开或规范化，或连接级 SQLite 配置失败时，返回诊断。
+    /// Returns a diagnostic when the file is absent, cannot be opened read-write or canonicalized,
+    /// or connection-local SQLite configuration fails.
+    ///
+    /// # Notes
+    ///
+    /// 本方法不会创建、认领或迁移数据库，也不会持久化新的日志模式。
+    /// This method does not create, claim, or migrate a database, nor persist a new journal mode.
+    ///
+    /// <!-- @brief 以不创建模式打开已有数据库。 / Open an existing database without creating a missing path. -->
+    /// <!-- @param path 必须已存在的数据库路径。 / Database path that must already exist. -->
+    /// <!-- @return 数据库适配器或诊断。 / Database adapter or diagnostic. -->
     pub fn open_existing(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_existing_with_options(path, SqliteOptions::default())
     }
 
-    /// @brief 使用选项以不创建模式打开已有数据库。 / Open an existing database with options and without creation.
-    /// @param path 必须已存在的数据库路径。 / Database path that must already exist.
-    /// @param options SQLite 选项。 / SQLite options.
-    /// @return 数据库适配器或诊断。 / Database adapter or diagnostic.
+    /// 使用选项以不创建模式打开已有数据库。 / Opens an existing database with options and without creation.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - 必须已存在的数据库路径。 / Database path that must already exist.
+    /// * `options` - SQLite 连接选项。 / SQLite connection options.
+    ///
+    /// # Returns
+    ///
+    /// 返回按给定选项配置的维护适配器。 / Returns a maintenance adapter configured with the supplied options.
+    ///
+    /// # Errors
+    ///
+    /// 当选项无效、文件不存在、无法以读写模式打开或规范化，或连接级 SQLite 配置失败时，
+    /// 返回诊断。
+    /// Returns a diagnostic when options are invalid, the file is absent, cannot be opened
+    /// read-write or canonicalized, or connection-local SQLite configuration fails.
+    ///
+    /// # Notes
+    ///
+    /// 本方法不会创建、认领或迁移数据库；选项中的持久日志模式不会写入数据库。
+    /// This method does not create, claim, or migrate a database; the persistent journal-mode option
+    /// is not written to the database.
+    ///
+    /// <!-- @brief 使用选项以不创建模式打开已有数据库。 / Open an existing database with options and without creation. -->
+    /// <!-- @param path 必须已存在的数据库路径。 / Database path that must already exist. -->
+    /// <!-- @param options SQLite 选项。 / SQLite options. -->
+    /// <!-- @return 数据库适配器或诊断。 / Database adapter or diagnostic. -->
     pub fn open_existing_with_options(
         path: impl AsRef<Path>,
         options: SqliteOptions,
@@ -175,8 +323,20 @@ impl SqliteDatabase {
         Self::finish_open(connection, Some(path), false, false, options)
     }
 
-    /// @brief 打开独立内存数据库。 / Open an isolated in-memory database.
-    /// @return 已配置的适配器或诊断。 / Configured adapter or diagnostic.
+    /// 打开独立内存数据库。 / Opens an isolated in-memory database.
+    ///
+    /// # Returns
+    ///
+    /// 返回已初始化的内存数据库适配器。 / Returns an initialized in-memory database adapter.
+    ///
+    /// # Errors
+    ///
+    /// 当 SQLite 无法建立连接、初始化规范表、配置连接或构建 FTS5 索引时，返回诊断。
+    /// Returns a diagnostic when SQLite cannot establish the connection, initialize canonical
+    /// tables, configure the connection, or build the FTS5 index.
+    ///
+    /// <!-- @brief 打开独立内存数据库。 / Open an isolated in-memory database. -->
+    /// <!-- @return 已配置的适配器或诊断。 / Configured adapter or diagnostic. -->
     pub fn open_in_memory() -> Result<Self> {
         let connection = Connection::open_in_memory().map_err(storage)?;
         Self::finish_open(connection, None, true, true, SqliteOptions::default())
@@ -206,9 +366,10 @@ impl SqliteDatabase {
                 ensure_fts_healthy(&mut connection)?;
             }
         } else if application_id == APPLICATION_ID && user_version <= SCHEMA_VERSION {
-            // `open_existing` is used by observational maintenance commands.  Its
-            // connection-local policy is useful, but it must not persist a new
-            // journal mode merely because somebody asked for status or doctor.
+            // `open_existing` 用于观察型维护命令；应采用连接级策略，但不能仅因执行
+            // `status` 或 `doctor` 就持久化新日志模式。
+            // `open_existing` serves observational maintenance commands. Its connection-local
+            // policy is useful, but `status` or `doctor` must not persist a new journal mode.
             if !initialize_empty {
                 configure_local(&connection, options)?;
             } else {
@@ -224,8 +385,22 @@ impl SqliteDatabase {
         })
     }
 
-    /// @brief 读取数据库版本和身份。 / Read database version and identity.
-    /// @return 即使是更新版本数据库也可用的状态。 / Status available even for a newer database.
+    /// 读取数据库版本和身份。 / Reads database version and identity.
+    ///
+    /// # Returns
+    ///
+    /// 返回数据库头、迁移台账版本与兼容性状态；该状态即使面对更新版本数据库也可用。
+    /// Returns the database header, migration-ledger version, and compatibility status; this status
+    /// remains available for a newer database.
+    ///
+    /// # Errors
+    ///
+    /// 当连接锁中毒，或无法读取 SQLite 头部或模式目录时，返回诊断。
+    /// Returns a diagnostic when the connection mutex is poisoned or SQLite headers or the schema
+    /// catalog cannot be read.
+    ///
+    /// <!-- @brief 读取数据库版本和身份。 / Read database version and identity. -->
+    /// <!-- @return 即使是更新版本数据库也可用的状态。 / Status available even for a newer database. -->
     pub fn status(&self) -> Result<DatabaseStatus> {
         let conn = self.lock()?;
         let application_id = pragma_i32(&conn, "application_id")?;
@@ -248,16 +423,51 @@ impl SqliteDatabase {
         })
     }
 
-    /// @brief 验证数据库可供正常业务读写。 / Validate that the database is usable for operational reads and writes.
-    /// @return 兼容时成功，否则返回包含版本上下文的诊断。 / Success when compatible, otherwise a diagnostic with version context.
-    /// @note 状态检查与维护命令可先打开更新版本数据库；正常应用入口必须在暴露门面前调用本方法。 / Status and maintenance commands may inspect a newer database; normal application entry points must call this before exposing the facade.
+    /// 验证数据库可供正常业务读写。 / Validates that the database supports operational reads and writes.
+    ///
+    /// # Returns
+    ///
+    /// 数据库身份、版本镜像、迁移台账及应用状态均有效时返回成功。
+    /// Returns success when database identity, version mirrors, migration ledger, and application
+    /// state are all valid.
+    ///
+    /// # Errors
+    ///
+    /// 当连接锁中毒、数据库不属于 Promptr、模式版本过新或不一致、迁移元数据损坏，或
+    /// 应用状态无效时，返回含上下文的诊断。
+    /// Returns a contextual diagnostic when the connection mutex is poisoned, the database is not a
+    /// Promptr database, schema versions are newer or inconsistent, migration metadata is corrupt,
+    /// or application state is invalid.
+    ///
+    /// # Notes
+    ///
+    /// 状态检查与维护命令可先打开更新版本数据库；正常应用入口必须在暴露门面前调用本方法。
+    /// Status and maintenance commands may inspect a newer database; normal application entry points
+    /// must call this method before exposing the facade.
+    ///
+    /// <!-- @brief 验证数据库可供正常业务读写。 / Validate that the database is usable for operational reads and writes. -->
+    /// <!-- @return 兼容时成功，否则返回包含版本上下文的诊断。 / Success when compatible, otherwise a diagnostic with version context. -->
+    /// <!-- @note 状态检查与维护命令可先打开更新版本数据库；正常应用入口必须在暴露门面前调用本方法。 / Status and maintenance commands may inspect a newer database; normal application entry points must call this before exposing the facade. -->
     pub fn validate_operational(&self) -> Result<()> {
         let conn = self.lock()?;
         validate_normal(&conn)
     }
 
-    /// @brief 读取跨连接的目录修订号。 / Read the cross-connection catalog revision.
-    /// @return 单调目录修订号或诊断。 / Monotonic catalog revision or diagnostic.
+    /// 读取跨连接的目录修订号。 / Reads the cross-connection catalog revision.
+    ///
+    /// # Returns
+    ///
+    /// 返回持久化的单调目录修订号。 / Returns the persisted monotonic catalog revision.
+    ///
+    /// # Errors
+    ///
+    /// 当连接锁中毒、数据库无法通过业务验证、修订号无法读取，或持久化值为负数时，
+    /// 返回诊断。
+    /// Returns a diagnostic when the connection mutex is poisoned, operational validation fails,
+    /// the revision cannot be read, or its persisted value is negative.
+    ///
+    /// <!-- @brief 读取跨连接的目录修订号。 / Read the cross-connection catalog revision. -->
+    /// <!-- @return 单调目录修订号或诊断。 / Monotonic catalog revision or diagnostic. -->
     pub fn catalog_revision(&self) -> Result<u64> {
         let conn = self.lock()?;
         validate_normal(&conn)?;
@@ -277,8 +487,20 @@ impl SqliteDatabase {
         })
     }
 
-    /// @brief 读取 SQLite data_version 以检测外部提交。 / Read SQLite data_version to detect external commits.
-    /// @return 当前连接观察到的版本或诊断。 / Version observed by this connection or diagnostic.
+    /// 读取 SQLite `data_version` 以检测外部提交。 / Reads SQLite `data_version` to detect external commits.
+    ///
+    /// # Returns
+    ///
+    /// 返回当前连接观察到的数据版本。 / Returns the data version observed by this connection.
+    ///
+    /// # Errors
+    ///
+    /// 当连接锁中毒、SQLite 无法读取 `data_version`，或返回负值时，返回诊断。
+    /// Returns a diagnostic when the connection mutex is poisoned, SQLite cannot read
+    /// `data_version`, or SQLite returns a negative value.
+    ///
+    /// <!-- @brief 读取 SQLite data_version 以检测外部提交。 / Read SQLite data_version to detect external commits. -->
+    /// <!-- @return 当前连接观察到的版本或诊断。 / Version observed by this connection or diagnostic. -->
     pub fn data_version(&self) -> Result<u64> {
         let conn = self.lock()?;
         let raw: i64 = conn
@@ -293,9 +515,30 @@ impl SqliteDatabase {
         })
     }
 
-    /// @brief 运行 SQLite、外键与领域一致性检查。 / Run SQLite, foreign-key, and domain consistency checks.
-    /// @param full 是否使用完整 integrity_check。 / Whether to use the full integrity_check.
-    /// @return 检查报告或诊断。 / Check report or diagnostic.
+    /// 运行 SQLite、外键与领域一致性检查。 / Runs SQLite, foreign-key, and domain consistency checks.
+    ///
+    /// # Arguments
+    ///
+    /// * `full` - 为 `true` 时运行完整 `integrity_check`，否则运行 `quick_check`。
+    ///   Runs full `integrity_check` when `true`; otherwise runs `quick_check`.
+    ///
+    /// # Returns
+    ///
+    /// 返回完整性检查行、外键违规数与领域恢复状态。 / Returns integrity-check rows, the
+    /// foreign-key violation count, and domain rehydration status.
+    ///
+    /// # Errors
+    ///
+    /// 当连接锁中毒、数据库身份或版本无法验证、SQLite 检查编译指示无法执行，或应用状态
+    /// 无法读取时，返回诊断。领域快照恢复失败本身记录为 `domain_valid = false`，而非方法错误。
+    /// Returns a diagnostic when the connection mutex is poisoned, database identity or version
+    /// cannot be validated, SQLite check pragmas cannot run, or application state cannot be read.
+    /// Domain snapshot rehydration failure itself is reported as `domain_valid = false`, not as a
+    /// method error.
+    ///
+    /// <!-- @brief 运行 SQLite、外键与领域一致性检查。 / Run SQLite, foreign-key, and domain consistency checks. -->
+    /// <!-- @param full 是否使用完整 integrity_check。 / Whether to use the full integrity_check. -->
+    /// <!-- @return 检查报告或诊断。 / Check report or diagnostic. -->
     pub fn check(&self, full: bool) -> Result<CheckReport> {
         let conn = self.lock()?;
         validate_identity_and_version(&conn)?;
@@ -324,9 +567,35 @@ impl SqliteDatabase {
         })
     }
 
-    /// @brief 使用 SQLite Online Backup API 创建一致备份。 / Create a consistent backup with SQLite Online Backup API.
-    /// @param destination 目标数据库文件。 / Destination database file.
-    /// @return 成功或诊断。 / Success or diagnostic.
+    /// 使用 SQLite Online Backup API 创建一致备份。 / Creates a consistent backup with the SQLite Online Backup API.
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - 目标数据库文件。 / Destination database file.
+    ///
+    /// # Returns
+    ///
+    /// 在经 `quick_check` 验证的临时备份原子持久化到目标路径后返回成功。
+    /// Returns success after a temporary backup verified by `quick_check` is atomically persisted to
+    /// the destination.
+    ///
+    /// # Errors
+    ///
+    /// 当目标指向实时源库、临时文件无法创建、连接锁中毒、在线备份或验证失败、SQLite
+    /// 边车文件无法移除、数据无法同步，或验证后的备份无法持久化时，返回诊断。
+    /// Returns a diagnostic when the destination aliases the live source, the temporary file cannot
+    /// be created, the connection mutex is poisoned, online backup or verification fails, SQLite
+    /// sidecar files cannot be removed, data cannot be synchronized, or the verified backup cannot be
+    /// persisted.
+    ///
+    /// # Notes
+    ///
+    /// 在验证与同步完成之前不会触碰目标文件。 / The destination is not touched until
+    /// verification and synchronization complete.
+    ///
+    /// <!-- @brief 使用 SQLite Online Backup API 创建一致备份。 / Create a consistent backup with SQLite Online Backup API. -->
+    /// <!-- @param destination 目标数据库文件。 / Destination database file. -->
+    /// <!-- @return 成功或诊断。 / Success or diagnostic. -->
     pub fn backup(&self, destination: impl AsRef<Path>) -> Result<()> {
         let destination = destination.as_ref();
         if let Some(source) = &self.path
@@ -382,8 +651,23 @@ impl SqliteDatabase {
         Ok(())
     }
 
-    /// @brief 从规范表重建派生 FTS5 索引。 / Rebuild the derived FTS5 index from canonical tables.
-    /// @return 成功或诊断。 / Success or diagnostic.
+    /// 从规范表重建派生 FTS5 索引。 / Rebuilds the derived FTS5 index from canonical tables.
+    ///
+    /// # Returns
+    ///
+    /// 索引在即时事务中完成重建并提交后返回成功。 / Returns success after the index is rebuilt
+    /// and committed in an immediate transaction.
+    ///
+    /// # Errors
+    ///
+    /// 当互斥锁中毒、即时事务无法开始、数据库无法通过业务验证、FTS5 表无法重建，或事务
+    /// 无法提交时，返回诊断。
+    /// Returns a diagnostic when the mutex is poisoned, the immediate transaction cannot start,
+    /// operational validation fails, the FTS5 table cannot be rebuilt, or the transaction cannot
+    /// commit.
+    ///
+    /// <!-- @brief 从规范表重建派生 FTS5 索引。 / Rebuild the derived FTS5 index from canonical tables. -->
+    /// <!-- @return 成功或诊断。 / Success or diagnostic. -->
     pub fn rebuild_index(&mut self) -> Result<()> {
         let conn = self.connection.get_mut().map_err(|_| poisoned())?;
         let tx = conn
@@ -394,8 +678,31 @@ impl SqliteDatabase {
         tx.commit().map_err(storage)
     }
 
-    /// @brief 修复可安全重建的版本镜像和 FTS 索引。 / Repair the safely reconstructible version mirror and FTS index.
-    /// @return 成功或诊断。 / Success or diagnostic.
+    /// 修复可安全重建的版本镜像和 FTS 索引。 / Repairs safely reconstructible version mirrors and the FTS index.
+    ///
+    /// # Returns
+    ///
+    /// 应用状态、`user_version` 镜像与 FTS5 索引重建并通过最终验证后返回成功。
+    /// Returns success after application state, the `user_version` mirror, and the FTS5 index are
+    /// rebuilt and pass final validation.
+    ///
+    /// # Errors
+    ///
+    /// 当互斥锁中毒、数据库不是 Promptr 数据库、模式或台账版本过新、迁移台账缺失或校验和
+    /// 不匹配、规范表无法恢复为领域快照、修复事务失败，或最终业务验证失败时，返回诊断。
+    /// Returns a diagnostic when the mutex is poisoned, the database is not a Promptr database,
+    /// schema or ledger versions are newer, the migration ledger is absent or its checksum differs,
+    /// canonical tables cannot rehydrate a domain snapshot, the repair transaction fails, or final
+    /// operational validation fails.
+    ///
+    /// # Notes
+    ///
+    /// 本方法只修复可由规范表推导的状态，不覆盖未知数据库或更新版本数据库。
+    /// This method repairs only state derivable from canonical tables; it does not overwrite an
+    /// unknown database or a newer schema.
+    ///
+    /// <!-- @brief 修复可安全重建的版本镜像和 FTS 索引。 / Repair the safely reconstructible version mirror and FTS index. -->
+    /// <!-- @return 成功或诊断。 / Success or diagnostic. -->
     pub fn repair_derived(&mut self) -> Result<()> {
         let conn = self.connection.get_mut().map_err(|_| poisoned())?;
         let application_id = pragma_i32(conn, "application_id")?;

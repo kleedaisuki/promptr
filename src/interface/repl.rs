@@ -19,22 +19,38 @@ use crate::{
 
 use super::presenter::{OutputFormat, write_diagnostic, write_values};
 
-/// @brief REPL 的类型化终止结果。 / Typed REPL termination outcome.
+/// REPL 的类型化终止结果。 / Typed REPL termination outcome.
+///
+/// <!-- @brief REPL 的类型化终止结果。 / Typed REPL termination outcome. -->
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplOutcome {
-    /// @brief 用户正常结束会话。 / The user ended the session normally.
+    /// 用户正常结束会话。 / The user ended the session normally.
+    ///
+    /// <!-- @brief 用户正常结束会话。 / The user ended the session normally. -->
     Completed,
-    /// @brief 输入在未完成语句中结束。 / Input ended in an incomplete statement.
+    /// 输入在未完成语句中结束。 / Input ended in an incomplete statement.
+    ///
+    /// <!-- @brief 输入在未完成语句中结束。 / Input ended in an incomplete statement. -->
     IncompleteInput,
-    /// @brief 读取输入失败。 / Reading input failed.
+    /// 读取输入失败。 / Reading input failed.
+    ///
+    /// <!-- @brief 读取输入失败。 / Reading input failed. -->
     InputIo,
-    /// @brief 写入交互输出失败。 / Writing interactive output failed.
+    /// 写入交互输出失败。 / Writing interactive output failed.
+    ///
+    /// <!-- @brief 写入交互输出失败。 / Writing interactive output failed. -->
     OutputIo,
 }
 
 impl ReplOutcome {
-    /// @brief 映射为稳定的进程退出码。 / Map to the stable process exit code.
-    /// @return 成功为 0，I/O 失败为 1，不完整输入为 2。 / Zero for success, one for I/O failure, and two for incomplete input.
+    /// 映射为稳定的进程退出码。 / Map to the stable process exit code.
+    ///
+    /// # Returns
+    ///
+    /// 成功为 0，I/O 失败为 1，不完整输入为 2。 / Zero for success, one for I/O failure, and two for incomplete input.
+    ///
+    /// <!-- @brief 映射为稳定的进程退出码。 / Map to the stable process exit code. -->
+    /// <!-- @return 成功为 0，I/O 失败为 1，不完整输入为 2。 / Zero for success, one for I/O failure, and two for incomplete input. -->
     #[must_use]
     pub const fn exit_code(self) -> u8 {
         match self {
@@ -45,12 +61,25 @@ impl ReplOutcome {
     }
 }
 
-/// @brief 运行逐语句 REPL。 / Run the statement-oriented REPL.
-/// @param app 已装配应用门面。 / Assembled application facade.
-/// @param input 输入流。 / Input stream.
-/// @param stdout 标准输出。 / Standard output.
-/// @param stderr 标准错误。 / Standard error.
-/// @return 类型化终止结果；致命诊断已由 REPL 精确发布一次。 / Typed termination outcome; a fatal diagnostic has already been published exactly once by the REPL.
+/// 运行逐语句 REPL。 / Run the statement-oriented REPL.
+///
+/// # Arguments
+///
+/// - `app`: 已装配应用门面。 / Assembled application facade.
+/// - `input`: 输入流。 / Input stream.
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+///
+/// # Returns
+///
+/// 类型化终止结果；致命诊断已由 REPL 精确发布一次。 / Typed termination outcome; a fatal diagnostic has already been published exactly once by the REPL.
+///
+/// <!-- @brief 运行逐语句 REPL。 / Run the statement-oriented REPL. -->
+/// <!-- @param app 已装配应用门面。 / Assembled application facade. -->
+/// <!-- @param input 输入流。 / Input stream. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @return 类型化终止结果；致命诊断已由 REPL 精确发布一次。 / Typed termination outcome; a fatal diagnostic has already been published exactly once by the REPL. -->
 pub fn run(
     app: &mut Promptr,
     input: &mut dyn BufRead,
@@ -162,18 +191,39 @@ pub fn run(
     }
 }
 
-/// @brief REPL 使用的编辑器提供者策略。 / Editor-provider strategy used by the REPL.
+/// REPL 使用的编辑器提供者策略。 / Editor-provider strategy used by the REPL.
+///
+/// <!-- @brief REPL 使用的编辑器提供者策略。 / Editor-provider strategy used by the REPL. -->
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ProviderStrategy {
-    /// @brief 使用 REPL 内建行编辑器。 / Use the built-in REPL line editor.
+    /// 使用 REPL 内建行编辑器。 / Use the built-in REPL line editor.
+    ///
+    /// <!-- @brief 使用 REPL 内建行编辑器。 / Use the built-in REPL line editor. -->
     Builtin,
-    /// @brief 直接启动配置的外部 argv。 / Directly launch the configured external argv.
+    /// 直接启动配置的外部 argv。 / Directly launch the configured external argv.
+    ///
+    /// <!-- @brief 直接启动配置的外部 argv。 / Directly launch the configured external argv. -->
     External(Vec<String>),
 }
 
-/// @brief 把生效编辑器配置映射为 REPL 策略。 / Map effective editor configuration to a REPL strategy.
-/// @param config 已验证编辑器配置。 / Validated editor configuration.
-/// @return 编辑器策略或配置诊断。 / Editor strategy or a configuration diagnostic.
+/// 把生效编辑器配置映射为 REPL 策略。 / Map effective editor configuration to a REPL strategy.
+///
+/// # Arguments
+///
+/// - `config`: 已验证编辑器配置。 / Validated editor configuration.
+///
+/// # Returns
+///
+/// 编辑器策略或配置诊断。 / Editor strategy or a configuration diagnostic.
+///
+/// # Errors
+///
+/// 当配置选择外部编辑器却未提供参数向量（argument vector）时返回配置诊断。 / Returns a
+/// configuration diagnostic when external-editor mode has no argument vector.
+///
+/// <!-- @brief 把生效编辑器配置映射为 REPL 策略。 / Map effective editor configuration to a REPL strategy. -->
+/// <!-- @param config 已验证编辑器配置。 / Validated editor configuration. -->
+/// <!-- @return 编辑器策略或配置诊断。 / Editor strategy or a configuration diagnostic. -->
 fn provider_strategy(config: &EditorConfig) -> Result<ProviderStrategy, Diagnostic> {
     match config.mode {
         EditorMode::Builtin => Ok(ProviderStrategy::Builtin),
@@ -191,9 +241,19 @@ fn provider_strategy(config: &EditorConfig) -> Result<ProviderStrategy, Diagnost
     }
 }
 
-/// @brief 把编辑器适配错误转换为共享诊断。 / Convert an editor-adapter error to a shared diagnostic.
-/// @param error 编辑器错误。 / Editor error.
-/// @return 结构化外部系统诊断。 / Structured external-system diagnostic.
+/// 把编辑器适配错误转换为共享诊断。 / Convert an editor-adapter error to a shared diagnostic.
+///
+/// # Arguments
+///
+/// - `error`: 编辑器错误。 / Editor error.
+///
+/// # Returns
+///
+/// 结构化外部系统诊断。 / Structured external-system diagnostic.
+///
+/// <!-- @brief 把编辑器适配错误转换为共享诊断。 / Convert an editor-adapter error to a shared diagnostic. -->
+/// <!-- @param error 编辑器错误。 / Editor error. -->
+/// <!-- @return 结构化外部系统诊断。 / Structured external-system diagnostic. -->
 fn editor_diagnostic(error: EditorError) -> Diagnostic {
     Diagnostic::error(
         "E_EDITOR",
@@ -203,18 +263,39 @@ fn editor_diagnostic(error: EditorError) -> Diagnostic {
     .with_cause(error.to_string())
 }
 
-/// @brief REPL 的无存储行编辑适配器。 / Store-free line editor adapter for the REPL.
+/// REPL 的无存储行编辑适配器。 / Store-free line editor adapter for the REPL.
+///
+/// <!-- @brief REPL 的无存储行编辑适配器。 / Store-free line editor adapter for the REPL. -->
 struct ReplTextProvider<'a> {
-    /// @brief 与命令循环共享的输入。 / Input shared with the command loop.
+    /// 与命令循环共享的输入。 / Input shared with the command loop.
+    ///
+    /// <!-- @brief 与命令循环共享的输入。 / Input shared with the command loop. -->
     input: &'a mut dyn BufRead,
-    /// @brief 编辑提示与原文预览目标。 / Destination for edit prompts and original-text preview.
+    /// 编辑提示与原文预览目标。 / Destination for edit prompts and original-text preview.
+    ///
+    /// <!-- @brief 编辑提示与原文预览目标。 / Destination for edit prompts and original-text preview. -->
     stdout: &'a mut dyn Write,
 }
 
 impl TextProvider for ReplTextProvider<'_> {
-    /// @brief 读取多行直到显式保存或取消。 / Read lines until an explicit save or cancellation.
-    /// @param request 原文与乐观身份。 / Original text and optimistic identity.
-    /// @return 保存的精确正文或取消。 / Exact saved body or cancellation.
+    /// 读取多行直到显式保存或取消。 / Read lines until an explicit save or cancellation.
+    ///
+    /// # Arguments
+    ///
+    /// - `request`: 原文与乐观身份。 / Original text and optimistic identity.
+    ///
+    /// # Returns
+    ///
+    /// 保存的精确正文或取消。 / Exact saved body or cancellation.
+    ///
+    /// # Errors
+    ///
+    /// 当提示无法写入或编辑输入无法读取时返回 I/O 编辑器错误。 / Returns an I/O editor error
+    /// when the prompt cannot be written or editor input cannot be read.
+    ///
+    /// <!-- @brief 读取多行直到显式保存或取消。 / Read lines until an explicit save or cancellation. -->
+    /// <!-- @param request 原文与乐观身份。 / Original text and optimistic identity. -->
+    /// <!-- @return 保存的精确正文或取消。 / Exact saved body or cancellation. -->
     fn edit(&mut self, request: EditRequest) -> Result<EditorOutcome, EditorError> {
         writeln!(
             self.stdout,
@@ -261,9 +342,24 @@ impl TextProvider for ReplTextProvider<'_> {
     }
 }
 
-/// @brief 使用平台 shell 执行 REPL 元命令。 / Execute a REPL meta-command with the platform shell.
-/// @param source shell 命令文本。 / Shell command text.
-/// @return 成功或外部进程诊断。 / Success or an external-process diagnostic.
+/// 使用平台 shell 执行 REPL 元命令。 / Execute a REPL meta-command with the platform shell.
+///
+/// # Arguments
+///
+/// - `source`: shell 命令文本。 / Shell command text.
+///
+/// # Returns
+///
+/// 成功或外部进程诊断。 / Success or an external-process diagnostic.
+///
+/// # Errors
+///
+/// 当平台 shell 无法启动或命令以非零状态退出时返回外部系统诊断。 / Returns an external-system
+/// diagnostic when the platform shell cannot start or the command exits unsuccessfully.
+///
+/// <!-- @brief 使用平台 shell 执行 REPL 元命令。 / Execute a REPL meta-command with the platform shell. -->
+/// <!-- @param source shell 命令文本。 / Shell command text. -->
+/// <!-- @return 成功或外部进程诊断。 / Success or an external-process diagnostic. -->
 fn execute_shell(source: &str) -> Result<(), Diagnostic> {
     if source.is_empty() {
         return Ok(());

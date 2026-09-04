@@ -7,19 +7,35 @@ use serde::{Deserialize, Serialize};
 
 use super::{ConfigDiagnostic, ConfigPaths};
 
-/// @brief 当前配置模式版本 / Current configuration schema version.
+/// 当前配置模式版本 / Current configuration schema version.
+///
+/// <!-- @brief 当前配置模式版本 / Current configuration schema version. -->
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
+/// 定义可序列化为稳定字符串字面量的配置枚举 / Defines a configuration enum that
+/// serializes to stable string literals.
+///
+/// <!-- @brief 定义可序列化为稳定字符串字面量的配置枚举 / Defines a configuration enum that serializes to stable string literals. -->
 macro_rules! string_enum {
-    ($(#[$meta:meta])* $visibility:vis enum $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
+    ($(#[$meta:meta])* $visibility:vis enum $name:ident {
+        $($(#[$variant_meta:meta])* $variant:ident => $text:literal),+ $(,)?
+    }) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(rename_all = "lowercase")]
-        $visibility enum $name { $($variant),+ }
+        $visibility enum $name {
+            $($(#[$variant_meta])* $variant),+
+        }
 
         impl $name {
-            /// @brief 返回稳定配置字面量 / Returns the stable configuration literal.
-            /// @return 字面量 / Literal.
+            /// 返回稳定配置字面量 / Returns the stable configuration literal.
+            ///
+            /// <!-- @brief 返回稳定配置字面量 / Returns the stable configuration literal. -->
+            /// # Returns
+            ///
+            /// 稳定字面量 / The stable literal.
+            ///
+            /// <!-- @return 字面量 / Literal. -->
             pub const fn as_str(self) -> &'static str {
                 match self { $(Self::$variant => $text),+ }
             }
@@ -28,130 +44,319 @@ macro_rules! string_enum {
 }
 
 string_enum! {
-    /// @brief 终端颜色策略 / Terminal color policy.
-    pub enum ColorMode { Auto => "auto", Truecolor => "truecolor", Ansi256 => "ansi256", Ansi16 => "ansi16", None => "none" }
+    /// 终端颜色策略 / Terminal color policy.
+    ///
+    /// <!-- @brief 终端颜色策略 / Terminal color policy. -->
+    pub enum ColorMode {
+        /// 自动检测终端颜色能力 / Automatically detects terminal color capabilities.
+        ///
+        /// <!-- @brief 自动检测终端颜色能力 / Automatically detects terminal color capabilities. -->
+        Auto => "auto",
+        /// 使用真彩色 / Uses true color.
+        ///
+        /// <!-- @brief 使用真彩色 / Uses true color. -->
+        Truecolor => "truecolor",
+        /// 使用 256 色 ANSI 调色板 / Uses the 256-color ANSI palette.
+        ///
+        /// <!-- @brief 使用 256 色 ANSI 调色板 / Uses the 256-color ANSI palette. -->
+        Ansi256 => "ansi256",
+        /// 使用 16 色 ANSI 调色板 / Uses the 16-color ANSI palette.
+        ///
+        /// <!-- @brief 使用 16 色 ANSI 调色板 / Uses the 16-color ANSI palette. -->
+        Ansi16 => "ansi16",
+        /// 禁用颜色 / Disables color.
+        ///
+        /// <!-- @brief 禁用颜色 / Disables color. -->
+        None => "none",
+    }
 }
 string_enum! {
-    /// @brief 字形策略 / Glyph policy.
-    pub enum GlyphMode { Auto => "auto", Unicode => "unicode", Ascii => "ascii" }
+    /// 字形策略 / Glyph policy.
+    ///
+    /// <!-- @brief 字形策略 / Glyph policy. -->
+    pub enum GlyphMode {
+        /// 自动检测字形能力 / Automatically detects glyph capabilities.
+        ///
+        /// <!-- @brief 自动检测字形能力 / Automatically detects glyph capabilities. -->
+        Auto => "auto",
+        /// 使用 Unicode 字形 / Uses Unicode glyphs.
+        ///
+        /// <!-- @brief 使用 Unicode 字形 / Uses Unicode glyphs. -->
+        Unicode => "unicode",
+        /// 仅使用 ASCII 字形 / Uses ASCII glyphs only.
+        ///
+        /// <!-- @brief 仅使用 ASCII 字形 / Uses ASCII glyphs only. -->
+        Ascii => "ascii",
+    }
 }
 string_enum! {
-    /// @brief 默认预览投影 / Default preview projection.
-    pub enum PreviewMode { Tree => "tree", Xml => "xml", Content => "content", Metadata => "metadata" }
+    /// 默认预览投影 / Default preview projection.
+    ///
+    /// <!-- @brief 默认预览投影 / Default preview projection. -->
+    pub enum PreviewMode {
+        /// 显示树投影 / Shows the tree projection.
+        ///
+        /// <!-- @brief 显示树投影 / Shows the tree projection. -->
+        Tree => "tree",
+        /// 显示 XML 投影 / Shows the XML projection.
+        ///
+        /// <!-- @brief 显示 XML 投影 / Shows the XML projection. -->
+        Xml => "xml",
+        /// 显示内容投影 / Shows the content projection.
+        ///
+        /// <!-- @brief 显示内容投影 / Shows the content projection. -->
+        Content => "content",
+        /// 显示元数据投影 / Shows the metadata projection.
+        ///
+        /// <!-- @brief 显示元数据投影 / Shows the metadata projection. -->
+        Metadata => "metadata",
+    }
 }
 string_enum! {
-    /// @brief 编辑器提供者 / Editor provider.
-    pub enum EditorMode { Builtin => "builtin", External => "external" }
+    /// 编辑器提供者 / Editor provider.
+    ///
+    /// <!-- @brief 编辑器提供者 / Editor provider. -->
+    pub enum EditorMode {
+        /// 使用内建编辑器 / Uses the built-in editor.
+        ///
+        /// <!-- @brief 使用内建编辑器 / Uses the built-in editor. -->
+        Builtin => "builtin",
+        /// 调用配置的外部编辑器 / Invokes the configured external editor.
+        ///
+        /// <!-- @brief 调用配置的外部编辑器 / Invokes the configured external editor. -->
+        External => "external",
+    }
 }
 string_enum! {
-    /// @brief 搜索字段 / Search field.
-    pub enum SearchField { Title => "title", Content => "content", Mixed => "mixed" }
+    /// 搜索字段 / Search field.
+    ///
+    /// <!-- @brief 搜索字段 / Search field. -->
+    pub enum SearchField {
+        /// 仅搜索标题 / Searches titles only.
+        ///
+        /// <!-- @brief 仅搜索标题 / Searches titles only. -->
+        Title => "title",
+        /// 仅搜索内容 / Searches content only.
+        ///
+        /// <!-- @brief 仅搜索内容 / Searches content only. -->
+        Content => "content",
+        /// 搜索标题与内容 / Searches both titles and content.
+        ///
+        /// <!-- @brief 搜索标题与内容 / Searches both titles and content. -->
+        Mixed => "mixed",
+    }
 }
 string_enum! {
-    /// @brief 搜索匹配器 / Search matcher.
-    pub enum SearchMatcher { Fuzzy => "fuzzy", Exact => "exact" }
+    /// 搜索匹配器 / Search matcher.
+    ///
+    /// <!-- @brief 搜索匹配器 / Search matcher. -->
+    pub enum SearchMatcher {
+        /// 使用模糊匹配 / Uses fuzzy matching.
+        ///
+        /// <!-- @brief 使用模糊匹配 / Uses fuzzy matching. -->
+        Fuzzy => "fuzzy",
+        /// 使用精确子串匹配 / Uses exact substring matching.
+        ///
+        /// <!-- @brief 使用精确子串匹配 / Uses exact substring matching. -->
+        Exact => "exact",
+    }
 }
 string_enum! {
-    /// @brief SQLite 日志模式 / SQLite journal mode.
-    pub enum JournalMode { Wal => "wal", Delete => "delete" }
+    /// SQLite 日志模式 / SQLite journal mode.
+    ///
+    /// <!-- @brief SQLite 日志模式 / SQLite journal mode. -->
+    pub enum JournalMode {
+        /// 使用预写式日志 / Uses write-ahead logging.
+        ///
+        /// <!-- @brief 使用预写式日志 / Uses write-ahead logging. -->
+        Wal => "wal",
+        /// 使用回滚日志并在提交后删除 / Uses a rollback journal deleted after commit.
+        ///
+        /// <!-- @brief 使用回滚日志并在提交后删除 / Uses a rollback journal deleted after commit. -->
+        Delete => "delete",
+    }
 }
 
-/// @brief 完整语义调色板 / Complete semantic color palette.
+/// 完整语义调色板 / Complete semantic color palette.
+///
+/// <!-- @brief 完整语义调色板 / Complete semantic color palette. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Theme {
-    /// @brief 表面色 / Surface color.
+    /// 表面色 / Surface color.
+    ///
+    /// <!-- @brief 表面色 / Surface color. -->
     pub surface: String,
-    /// @brief 文本色 / Text color.
+    /// 文本色 / Text color.
+    ///
+    /// <!-- @brief 文本色 / Text color. -->
     pub text: String,
-    /// @brief 弱化色 / Muted color.
+    /// 弱化色 / Muted color.
+    ///
+    /// <!-- @brief 弱化色 / Muted color. -->
     pub muted: String,
-    /// @brief 选中色 / Selection color.
+    /// 选中色 / Selection color.
+    ///
+    /// <!-- @brief 选中色 / Selection color. -->
     pub selection: String,
-    /// @brief Fragment 颜色 / Fragment color.
+    /// Fragment 颜色 / Fragment color.
+    ///
+    /// <!-- @brief Fragment 颜色 / Fragment color. -->
     pub fragment: String,
-    /// @brief Prompt 颜色 / Prompt color.
+    /// Prompt 颜色 / Prompt color.
+    ///
+    /// <!-- @brief Prompt 颜色 / Prompt color. -->
     pub prompt: String,
-    /// @brief 标签色 / Tag color.
+    /// 标签色 / Tag color.
+    ///
+    /// <!-- @brief 标签色 / Tag color. -->
     pub tag: String,
-    /// @brief 成功色 / Success color.
+    /// 成功色 / Success color.
+    ///
+    /// <!-- @brief 成功色 / Success color. -->
     pub success: String,
-    /// @brief 警告色 / Warning color.
+    /// 警告色 / Warning color.
+    ///
+    /// <!-- @brief 警告色 / Warning color. -->
     pub warning: String,
-    /// @brief 错误色 / Error color.
+    /// 错误色 / Error color.
+    ///
+    /// <!-- @brief 错误色 / Error color. -->
     pub error: String,
 }
 
-/// @brief 用户界面配置 / User-interface configuration.
+/// 用户界面配置 / User-interface configuration.
+///
+/// <!-- @brief 用户界面配置 / User-interface configuration. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UiConfig {
-    /// @brief 颜色策略 / Color policy.
+    /// 颜色策略 / Color policy.
+    ///
+    /// <!-- @brief 颜色策略 / Color policy. -->
     pub color: ColorMode,
-    /// @brief 字形策略 / Glyph policy.
+    /// 字形策略 / Glyph policy.
+    ///
+    /// <!-- @brief 字形策略 / Glyph policy. -->
     pub glyphs: GlyphMode,
-    /// @brief 主题名 / Theme name.
+    /// 主题名 / Theme name.
+    ///
+    /// <!-- @brief 主题名 / Theme name. -->
     pub theme: String,
-    /// @brief 是否启用鼠标 / Whether mouse input is enabled.
+    /// 是否启用鼠标 / Whether mouse input is enabled.
+    ///
+    /// <!-- @brief 是否启用鼠标 / Whether mouse input is enabled. -->
     pub mouse: bool,
-    /// @brief 默认预览 / Default preview.
+    /// 默认预览 / Default preview.
+    ///
+    /// <!-- @brief 默认预览 / Default preview. -->
     pub preview: PreviewMode,
 }
 
-/// @brief 编辑器配置 / Editor configuration.
+/// 编辑器配置 / Editor configuration.
+///
+/// <!-- @brief 编辑器配置 / Editor configuration. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EditorConfig {
-    /// @brief 编辑器模式 / Editor mode.
+    /// 编辑器模式 / Editor mode.
+    ///
+    /// <!-- @brief 编辑器模式 / Editor mode. -->
     pub mode: EditorMode,
-    /// @brief 直接执行的外部 argv / Direct external argv.
+    /// 直接执行的外部 argv / Direct external argv.
+    ///
+    /// <!-- @brief 直接执行的外部 argv / Direct external argv. -->
     pub external: Option<Vec<String>>,
 }
 
-/// @brief 数据库配置 / Database configuration.
+/// 数据库配置 / Database configuration.
+///
+/// <!-- @brief 数据库配置 / Database configuration. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DatabaseConfig {
-    /// @brief SQLite 文件路径 / SQLite file path.
+    /// SQLite 文件路径 / SQLite file path.
+    ///
+    /// <!-- @brief SQLite 文件路径 / SQLite file path. -->
     pub path: PathBuf,
-    /// @brief 忙等待毫秒数 / Busy timeout in milliseconds.
+    /// 忙等待毫秒数 / Busy timeout in milliseconds.
+    ///
+    /// <!-- @brief 忙等待毫秒数 / Busy timeout in milliseconds. -->
     pub busy_timeout_ms: u64,
-    /// @brief 是否自动迁移 / Whether automatic migration is enabled.
+    /// 是否自动迁移 / Whether automatic migration is enabled.
+    ///
+    /// <!-- @brief 是否自动迁移 / Whether automatic migration is enabled. -->
     pub auto_migrate: bool,
-    /// @brief 迁移前是否备份 / Whether to back up before migration.
+    /// 迁移前是否备份 / Whether to back up before migration.
+    ///
+    /// <!-- @brief 迁移前是否备份 / Whether to back up before migration. -->
     pub backup_before_migrate: bool,
-    /// @brief 保留的备份数 / Number of backups retained.
+    /// 保留的备份数 / Number of backups retained.
+    ///
+    /// <!-- @brief 保留的备份数 / Number of backups retained. -->
     pub backup_keep: usize,
-    /// @brief SQLite 日志模式 / SQLite journal mode.
+    /// SQLite 日志模式 / SQLite journal mode.
+    ///
+    /// <!-- @brief SQLite 日志模式 / SQLite journal mode. -->
     pub journal_mode: JournalMode,
 }
 
-/// @brief 搜索配置 / Search configuration.
+/// 搜索配置 / Search configuration.
+///
+/// <!-- @brief 搜索配置 / Search configuration. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SearchConfig {
-    /// @brief 默认字段 / Default field.
+    /// 默认字段 / Default field.
+    ///
+    /// <!-- @brief 默认字段 / Default field. -->
     pub field: SearchField,
-    /// @brief 默认匹配器 / Default matcher.
+    /// 默认匹配器 / Default matcher.
+    ///
+    /// <!-- @brief 默认匹配器 / Default matcher. -->
     pub matcher: SearchMatcher,
 }
 
-/// @brief 经验证的运行时配置 / Validated runtime configuration.
+/// 经验证的运行时配置 / Validated runtime configuration.
+///
+/// <!-- @brief 经验证的运行时配置 / Validated runtime configuration. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Config {
-    /// @brief 模式版本 / Schema version.
+    /// 模式版本 / Schema version.
+    ///
+    /// <!-- @brief 模式版本 / Schema version. -->
     pub schema_version: u32,
-    /// @brief UI 配置 / UI configuration.
+    /// UI 配置 / UI configuration.
+    ///
+    /// <!-- @brief UI 配置 / UI configuration. -->
     pub ui: UiConfig,
-    /// @brief 编辑器配置 / Editor configuration.
+    /// 编辑器配置 / Editor configuration.
+    ///
+    /// <!-- @brief 编辑器配置 / Editor configuration. -->
     pub editor: EditorConfig,
-    /// @brief 数据库配置 / Database configuration.
+    /// 数据库配置 / Database configuration.
+    ///
+    /// <!-- @brief 数据库配置 / Database configuration. -->
     pub database: DatabaseConfig,
-    /// @brief 搜索配置 / Search configuration.
+    /// 搜索配置 / Search configuration.
+    ///
+    /// <!-- @brief 搜索配置 / Search configuration. -->
     pub search: SearchConfig,
-    /// @brief 自定义完整主题 / Complete custom themes.
+    /// 自定义完整主题 / Complete custom themes.
+    ///
+    /// <!-- @brief 自定义完整主题 / Complete custom themes. -->
     pub themes: BTreeMap<String, Theme>,
 }
 
 impl Config {
-    /// @brief 构造可直接运行的平台默认配置 / Builds usable platform defaults.
-    /// @param paths 平台路径 / Platform paths.
-    /// @return 默认配置 / Default configuration.
+    /// 构造可直接运行的平台默认配置 / Builds usable platform defaults.
+    ///
+    /// <!-- @brief 构造可直接运行的平台默认配置 / Builds usable platform defaults. -->
+    /// # Arguments
+    ///
+    /// - `paths`: 平台路径 / Platform paths.
+    ///
+    /// # Returns
+    ///
+    /// 可直接运行的默认配置 / A ready-to-run default configuration.
+    ///
+    /// <!-- @param paths 平台路径 / Platform paths. -->
+    /// <!-- @return 默认配置 / Default configuration. -->
     pub fn defaults(paths: &ConfigPaths) -> Self {
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
@@ -183,120 +388,233 @@ impl Config {
     }
 }
 
-/// @brief 可逐字段合并的配置层 / Field-wise mergeable configuration layer.
+/// 可逐字段合并的配置层 / Field-wise mergeable configuration layer.
+///
+/// <!-- @brief 可逐字段合并的配置层 / Field-wise mergeable configuration layer. -->
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigOverlay {
-    /// @brief UI 颜色 / UI color.
+    /// UI 颜色 / UI color.
+    ///
+    /// <!-- @brief UI 颜色 / UI color. -->
     pub ui_color: Option<ColorMode>,
-    /// @brief UI 字形 / UI glyphs.
+    /// UI 字形 / UI glyphs.
+    ///
+    /// <!-- @brief UI 字形 / UI glyphs. -->
     pub ui_glyphs: Option<GlyphMode>,
-    /// @brief UI 主题 / UI theme.
+    /// UI 主题 / UI theme.
+    ///
+    /// <!-- @brief UI 主题 / UI theme. -->
     pub ui_theme: Option<String>,
-    /// @brief UI 鼠标 / UI mouse.
+    /// UI 鼠标 / UI mouse.
+    ///
+    /// <!-- @brief UI 鼠标 / UI mouse. -->
     pub ui_mouse: Option<bool>,
-    /// @brief UI 预览 / UI preview.
+    /// UI 预览 / UI preview.
+    ///
+    /// <!-- @brief UI 预览 / UI preview. -->
     pub ui_preview: Option<PreviewMode>,
-    /// @brief 编辑器模式 / Editor mode.
+    /// 编辑器模式 / Editor mode.
+    ///
+    /// <!-- @brief 编辑器模式 / Editor mode. -->
     pub editor_mode: Option<EditorMode>,
-    /// @brief 外部编辑器 argv / External editor argv.
+    /// 外部编辑器 argv / External editor argv.
+    ///
+    /// <!-- @brief 外部编辑器 argv / External editor argv. -->
     pub editor_external: Option<Vec<String>>,
-    /// @brief 数据库路径 / Database path.
+    /// 数据库路径 / Database path.
+    ///
+    /// <!-- @brief 数据库路径 / Database path. -->
     pub database_path: Option<PathBuf>,
-    /// @brief 忙等待 / Busy timeout.
+    /// 忙等待 / Busy timeout.
+    ///
+    /// <!-- @brief 忙等待 / Busy timeout. -->
     pub database_busy_timeout_ms: Option<u64>,
-    /// @brief 自动迁移 / Automatic migration.
+    /// 自动迁移 / Automatic migration.
+    ///
+    /// <!-- @brief 自动迁移 / Automatic migration. -->
     pub database_auto_migrate: Option<bool>,
-    /// @brief 迁移备份 / Migration backup.
+    /// 迁移备份 / Migration backup.
+    ///
+    /// <!-- @brief 迁移备份 / Migration backup. -->
     pub database_backup_before_migrate: Option<bool>,
-    /// @brief 备份保留数 / Backup retention.
+    /// 备份保留数 / Backup retention.
+    ///
+    /// <!-- @brief 备份保留数 / Backup retention. -->
     pub database_backup_keep: Option<usize>,
-    /// @brief 日志模式 / Journal mode.
+    /// 日志模式 / Journal mode.
+    ///
+    /// <!-- @brief 日志模式 / Journal mode. -->
     pub database_journal_mode: Option<JournalMode>,
-    /// @brief 搜索字段 / Search field.
+    /// 搜索字段 / Search field.
+    ///
+    /// <!-- @brief 搜索字段 / Search field. -->
     pub search_field: Option<SearchField>,
-    /// @brief 搜索匹配器 / Search matcher.
+    /// 搜索匹配器 / Search matcher.
+    ///
+    /// <!-- @brief 搜索匹配器 / Search matcher. -->
     pub search_matcher: Option<SearchMatcher>,
-    /// @brief 主题表 / Theme table.
+    /// 主题表 / Theme table.
+    ///
+    /// <!-- @brief 主题表 / Theme table. -->
     pub themes: BTreeMap<String, Theme>,
 }
 
-/// @brief 版本化原始 TOML 配置 / Versioned raw TOML configuration.
+/// 版本化原始 TOML 配置 / Versioned raw TOML configuration.
+///
+/// <!-- @brief 版本化原始 TOML 配置 / Versioned raw TOML configuration. -->
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawConfig {
-    /// @brief 输入模式版本 / Input schema version.
+    /// 输入模式版本 / Input schema version.
+    ///
+    /// <!-- @brief 输入模式版本 / Input schema version. -->
     pub schema_version: Option<u32>,
-    /// @brief 原始 UI 表 / Raw UI table.
+    /// 原始 UI 表 / Raw UI table.
+    ///
+    /// <!-- @brief 原始 UI 表 / Raw UI table. -->
     pub ui: Option<RawUi>,
-    /// @brief 原始编辑器表 / Raw editor table.
+    /// 原始编辑器表 / Raw editor table.
+    ///
+    /// <!-- @brief 原始编辑器表 / Raw editor table. -->
     pub editor: Option<RawEditor>,
-    /// @brief 原始数据库表 / Raw database table.
+    /// 原始数据库表 / Raw database table.
+    ///
+    /// <!-- @brief 原始数据库表 / Raw database table. -->
     pub database: Option<RawDatabase>,
-    /// @brief 原始搜索表 / Raw search table.
+    /// 原始搜索表 / Raw search table.
+    ///
+    /// <!-- @brief 原始搜索表 / Raw search table. -->
     pub search: Option<RawSearch>,
-    /// @brief 原始主题表 / Raw theme tables.
+    /// 原始主题表 / Raw theme tables.
+    ///
+    /// <!-- @brief 原始主题表 / Raw theme tables. -->
     pub themes: Option<BTreeMap<String, Theme>>,
 }
 
-/// @brief 原始 UI 层 / Raw UI layer.
+/// 原始 UI 层 / Raw UI layer.
+///
+/// <!-- @brief 原始 UI 层 / Raw UI layer. -->
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawUi {
-    /// @brief 颜色 / Color.
+    /// 颜色 / Color.
+    ///
+    /// <!-- @brief 颜色 / Color. -->
     pub color: Option<ColorMode>,
-    /// @brief 字形 / Glyphs.
+    /// 字形 / Glyphs.
+    ///
+    /// <!-- @brief 字形 / Glyphs. -->
     pub glyphs: Option<GlyphMode>,
-    /// @brief 主题 / Theme.
+    /// 主题 / Theme.
+    ///
+    /// <!-- @brief 主题 / Theme. -->
     pub theme: Option<String>,
-    /// @brief 鼠标 / Mouse.
+    /// 鼠标 / Mouse.
+    ///
+    /// <!-- @brief 鼠标 / Mouse. -->
     pub mouse: Option<bool>,
-    /// @brief 预览 / Preview.
+    /// 预览 / Preview.
+    ///
+    /// <!-- @brief 预览 / Preview. -->
     pub preview: Option<PreviewMode>,
 }
 
-/// @brief 原始编辑器层 / Raw editor layer.
+/// 原始编辑器层 / Raw editor layer.
+///
+/// <!-- @brief 原始编辑器层 / Raw editor layer. -->
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawEditor {
-    /// @brief 模式 / Mode.
+    /// 模式 / Mode.
+    ///
+    /// <!-- @brief 模式 / Mode. -->
     pub mode: Option<EditorMode>,
-    /// @brief 外部 argv / External argv.
+    /// 外部 argv / External argv.
+    ///
+    /// <!-- @brief 外部 argv / External argv. -->
     pub external: Option<Vec<String>>,
 }
 
-/// @brief 原始数据库层 / Raw database layer.
+/// 原始数据库层 / Raw database layer.
+///
+/// <!-- @brief 原始数据库层 / Raw database layer. -->
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawDatabase {
-    /// @brief 路径 / Path.
+    /// 路径 / Path.
+    ///
+    /// <!-- @brief 路径 / Path. -->
     pub path: Option<PathBuf>,
-    /// @brief 忙等待 / Busy timeout.
+    /// 忙等待 / Busy timeout.
+    ///
+    /// <!-- @brief 忙等待 / Busy timeout. -->
     pub busy_timeout_ms: Option<u64>,
-    /// @brief 自动迁移 / Automatic migration.
+    /// 自动迁移 / Automatic migration.
+    ///
+    /// <!-- @brief 自动迁移 / Automatic migration. -->
     pub auto_migrate: Option<bool>,
-    /// @brief 备份 / Backup.
+    /// 备份 / Backup.
+    ///
+    /// <!-- @brief 备份 / Backup. -->
     pub backup_before_migrate: Option<bool>,
-    /// @brief 保留数 / Retention count.
+    /// 保留数 / Retention count.
+    ///
+    /// <!-- @brief 保留数 / Retention count. -->
     pub backup_keep: Option<usize>,
-    /// @brief 日志模式 / Journal mode.
+    /// 日志模式 / Journal mode.
+    ///
+    /// <!-- @brief 日志模式 / Journal mode. -->
     pub journal_mode: Option<JournalMode>,
 }
 
-/// @brief 原始搜索层 / Raw search layer.
+/// 原始搜索层 / Raw search layer.
+///
+/// <!-- @brief 原始搜索层 / Raw search layer. -->
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawSearch {
-    /// @brief 字段 / Field.
+    /// 字段 / Field.
+    ///
+    /// <!-- @brief 字段 / Field. -->
     pub field: Option<SearchField>,
-    /// @brief 匹配器 / Matcher.
+    /// 匹配器 / Matcher.
+    ///
+    /// <!-- @brief 匹配器 / Matcher. -->
     pub matcher: Option<SearchMatcher>,
 }
 
 impl RawConfig {
-    /// @brief 将原始配置转换为已验证覆盖层 / Converts raw config into a validated overlay.
-    /// @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise.
+    /// 将原始配置转换为已验证覆盖层 / Converts raw config into a validated overlay.
+    ///
+    /// <!-- @brief 将原始配置转换为已验证覆盖层 / Converts raw config into a validated overlay. -->
+    /// # Returns
+    ///
+    /// 已验证的配置覆盖层 / The validated configuration overlay.
+    ///
+    /// # Errors
+    ///
+    /// 任一配置值违反模式或跨字段约束时返回全部诊断 / Returns all diagnostics when any
+    /// configuration value violates schema or cross-field constraints.
+    ///
+    /// <!-- @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise. -->
     pub fn validate(self) -> Result<ConfigOverlay, Vec<ConfigDiagnostic>> {
         self.validate_at("<memory>")
     }
 
-    /// @brief 在指定源上验证原始配置 / Validates raw configuration at a named source.
-    /// @param source 配置路径或源名 / Configuration path or source name.
-    /// @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise.
+    /// 在指定源上验证原始配置 / Validates raw configuration at a named source.
+    ///
+    /// <!-- @brief 在指定源上验证原始配置 / Validates raw configuration at a named source. -->
+    /// # Arguments
+    ///
+    /// - `source`: 配置路径或源名 / Configuration path or source name.
+    ///
+    /// # Returns
+    ///
+    /// 已验证的配置覆盖层 / The validated configuration overlay.
+    ///
+    /// # Errors
+    ///
+    /// 任一配置值违反模式或跨字段约束时返回带源信息的全部诊断 / Returns all diagnostics,
+    /// annotated with the source, when any configuration value violates schema or cross-field
+    /// constraints.
+    ///
+    /// <!-- @param source 配置路径或源名 / Configuration path or source name. -->
+    /// <!-- @return 成功时返回覆盖层，否则返回全部诊断 / Overlay on success, all diagnostics otherwise. -->
     pub fn validate_at(self, source: &str) -> Result<ConfigOverlay, Vec<ConfigDiagnostic>> {
         let mut diagnostics = Vec::new();
         let version = self.schema_version.unwrap_or(CURRENT_SCHEMA_VERSION);
@@ -423,8 +741,14 @@ fn valid_color(color: &str) -> bool {
         || ANSI.contains(&color.to_ascii_lowercase().as_str())
 }
 
-/// @brief 返回 `config init` 的简洁注释示例 / Returns the concise commented `config init` example.
-/// @return TOML 示例 / TOML example.
+/// 返回 `config init` 的简洁注释示例 / Returns the concise commented `config init` example.
+///
+/// <!-- @brief 返回 `config init` 的简洁注释示例 / Returns the concise commented `config init` example. -->
+/// # Returns
+///
+/// 可直接写入配置文件的 TOML 示例 / A TOML example ready to write to a configuration file.
+///
+/// <!-- @return TOML 示例 / TOML example. -->
 pub fn init_example() -> &'static str {
     r#"# Promptr configuration. Every setting below is optional.
 schema_version = 1

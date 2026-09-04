@@ -32,24 +32,39 @@ use super::{
     update, view,
 };
 
-/// @brief 可单元测试的运行时请求计划。 / Unit-testable runtime request plan.
+/// 可单元测试的运行时请求计划。 / Unit-testable runtime request plan.
+///
+/// <!-- @brief 可单元测试的运行时请求计划。 / Unit-testable runtime request plan. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeRequest {
+    /// 通过共享应用运行时求值 DSL。 / Evaluate DSL through the shared application runtime.
     Eval(String),
+    /// 加载 Fragment 的正文与持久化身份。 / Load Fragment content and persistent identity.
     LoadFragmentDraft {
+        /// 获取正文所需的 DSL。 / DSL used to fetch the content.
         source: String,
+        /// 正在编辑的 Fragment 符号。 / Symbol of the Fragment being edited.
         symbol: String,
     },
+    /// 加载元数据草稿所需的 DSL。 / DSL used to load a metadata draft.
     LoadMetadataDraft(String),
+    /// 使用可恢复草稿编辑 Fragment。 / Edit a Fragment with a recoverable draft.
     EditFragment {
+        /// 建立编辑上下文的 DSL。 / DSL that establishes the edit context.
         source: String,
+        /// 要交给编辑器的拥有权草稿。 / Owned draft passed to the editor.
         draft: super::model::Draft,
     },
+    /// 使用乐观并发前置条件编辑元数据。 / Edit metadata with an optimistic-concurrency precondition.
     EditMetadata {
+        /// 要执行的元数据 DSL。 / Metadata DSL to execute.
         source: String,
+        /// 编辑开始时捕获的持久化目标。 / Persistent target captured when editing began.
         target: crate::infrastructure::editor::EditTarget,
+        /// 编辑开始时捕获的节点符号。 / Node symbol captured when editing began.
         symbol: String,
     },
+    /// 结束宿主事件循环。 / End the host event loop.
     Exit,
 }
 
@@ -74,9 +89,18 @@ fn install_signal_handler() -> Result<()> {
         .copied()
 }
 
-/// @brief 可替换的系统剪贴板边界。 / Replaceable system clipboard boundary.
+/// 可替换的系统剪贴板边界。 / Replaceable system clipboard boundary.
+///
+/// <!-- @brief 可替换的系统剪贴板边界。 / Replaceable system clipboard boundary. -->
 pub trait Clipboard {
-    /// @brief 写入完整 UTF-8 文本。 / Write complete UTF-8 text.
+    /// 写入完整 UTF-8 文本。 / Write complete UTF-8 text.
+    ///
+    /// <!-- @brief 写入完整 UTF-8 文本。 / Write complete UTF-8 text. -->
+    ///
+    /// # Errors
+    ///
+    /// 当平台剪贴板不可用或拒绝写入时返回后端错误文本。 /
+    /// Returns the backend error text when the platform clipboard is unavailable or rejects the write.
     fn set_text(&mut self, text: String) -> std::result::Result<(), String>;
 }
 
@@ -95,10 +119,21 @@ impl Clipboard for SystemClipboard {
     }
 }
 
-/// @brief 将 reducer 效果转换为唯一应用运行时请求。 / Convert a reducer effect into one application-runtime request.
-/// @param effect reducer 产生的效果。 / Effect produced by the reducer.
-/// @param selected 当前选中符号。 / Currently selected symbol.
-/// @return 请求；纯 UI 预览也统一落到 DSL eval。 / Request; UI projections also converge on DSL eval.
+/// 将 reducer 效果转换为唯一应用运行时请求。 / Convert a reducer effect into one application-runtime request.
+///
+/// # Arguments / 参数
+///
+/// - `effect` — reducer 产生的效果。 / Effect produced by the reducer.
+/// - `selected` — 当前选中符号。 / Currently selected symbol.
+///
+/// # Returns / 返回值
+///
+/// 请求；纯 UI 预览也统一落到 DSL eval。 / Request; UI projections also converge on DSL eval.
+///
+/// <!-- @brief 将 reducer 效果转换为唯一应用运行时请求。 / Convert a reducer effect into one application-runtime request. -->
+/// <!-- @param effect reducer 产生的效果。 / Effect produced by the reducer. -->
+/// <!-- @param selected 当前选中符号。 / Currently selected symbol. -->
+/// <!-- @return 请求；纯 UI 预览也统一落到 DSL eval。 / Request; UI projections also converge on DSL eval. -->
 pub fn runtime_request(effect: Effect, _selected: Option<&str>) -> Option<RuntimeRequest> {
     match effect {
         Effect::Execute(source) => Some(RuntimeRequest::Eval(source)),
@@ -164,7 +199,9 @@ impl TextProvider for OneShotProvider {
     }
 }
 
-/// @brief 配置选择的 Fragment 编辑提供者类别。 / Fragment editor provider kind selected by configuration.
+/// 配置选择的 Fragment 编辑提供者类别。 / Fragment editor provider kind selected by configuration.
+///
+/// <!-- @brief 配置选择的 Fragment 编辑提供者类别。 / Fragment editor provider kind selected by configuration. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderRoute {
     Builtin,
@@ -216,9 +253,25 @@ impl<P: TextProvider> TextProvider for DraftSeedProvider<P> {
     }
 }
 
-/// @brief 在当前终端运行同步 TUI。 / Run the synchronous TUI in the current terminal.
-/// @param app 已打开的共享应用门面。 / Open shared application facade.
-/// @return 正常退出或结构化终端诊断。 / Normal exit or structured terminal diagnostic.
+/// 在当前终端运行同步 TUI。 / Run the synchronous TUI in the current terminal.
+///
+/// # Arguments / 参数
+///
+/// - `app` — 已打开的共享应用门面。 / Open shared application facade.
+///
+/// # Returns / 返回值
+///
+/// 正常退出或结构化终端诊断。 / Normal exit or structured terminal diagnostic.
+///
+/// # Errors
+///
+/// 当信号处理器、终端生命周期、配置的编辑器或共享应用运行时失败时，返回结构化诊断。 /
+/// Returns a structured diagnostic when signal handling, terminal lifecycle, the configured editor,
+/// or the shared application runtime fails.
+///
+/// <!-- @brief 在当前终端运行同步 TUI。 / Run the synchronous TUI in the current terminal. -->
+/// <!-- @param app 已打开的共享应用门面。 / Open shared application facade. -->
+/// <!-- @return 正常退出或结构化终端诊断。 / Normal exit or structured terminal diagnostic. -->
 pub fn run(app: &mut Promptr) -> Result<()> {
     install_signal_handler()?;
     INTERRUPTED.store(false, Ordering::Release);
@@ -260,6 +313,7 @@ pub fn run(app: &mut Promptr) -> Result<()> {
         mapper.set_regions(regions);
 
         // 有界等待允许异步信号通过正常退出路径触发 RAII 恢复。
+        // Bounded waiting lets asynchronous signals trigger RAII restoration through normal exit.
         if !event::poll(Duration::from_millis(200)).map_err(terminal_error)? {
             if last_change_check.elapsed() >= Duration::from_secs(1) {
                 refresh_if_changed(app, &mut model)?;
@@ -310,11 +364,23 @@ fn terminal_capabilities(app: &Promptr) -> (Theme, GlyphMode) {
     terminal_capabilities_from(config, std::env::var_os("NO_COLOR").is_some(), dumb)
 }
 
-/// @brief 从配置与已探测环境计算终端能力。 / Compute terminal capabilities from config and already-probed environment.
-/// @param config 已验证配置。 / Validated configuration.
-/// @param no_color 是否存在 NO_COLOR。 / Whether NO_COLOR is present.
-/// @param dumb TERM 是否为 dumb。 / Whether TERM is dumb.
-/// @return 降级后的主题与字形。 / Degraded theme and glyphs.
+/// 从配置与已探测环境计算终端能力。 / Compute terminal capabilities from config and already-probed environment.
+///
+/// # Arguments / 参数
+///
+/// - `config` — 已验证配置。 / Validated configuration.
+/// - `no_color` — 是否存在 NO_COLOR。 / Whether NO_COLOR is present.
+/// - `dumb` — TERM 是否为 dumb。 / Whether TERM is dumb.
+///
+/// # Returns / 返回值
+///
+/// 降级后的主题与字形。 / Degraded theme and glyphs.
+///
+/// <!-- @brief 从配置与已探测环境计算终端能力。 / Compute terminal capabilities from config and already-probed environment. -->
+/// <!-- @param config 已验证配置。 / Validated configuration. -->
+/// <!-- @param no_color 是否存在 NO_COLOR。 / Whether NO_COLOR is present. -->
+/// <!-- @param dumb TERM 是否为 dumb。 / Whether TERM is dumb. -->
+/// <!-- @return 降级后的主题与字形。 / Degraded theme and glyphs. -->
 fn terminal_capabilities_from(
     config: &crate::infrastructure::config::Config,
     no_color: bool,
@@ -352,7 +418,9 @@ fn terminal_capabilities_from(
     (theme, glyphs)
 }
 
-/// @brief 将配置预览模式转换为 TUI 标签。 / Convert configured preview mode to a TUI tab.
+/// 将配置预览模式转换为 TUI 标签。 / Convert configured preview mode to a TUI tab.
+///
+/// <!-- @brief 将配置预览模式转换为 TUI 标签。 / Convert configured preview mode to a TUI tab. -->
 fn configured_preview(preview: crate::infrastructure::config::PreviewMode) -> PreviewTab {
     match preview {
         crate::infrastructure::config::PreviewMode::Tree => PreviewTab::Tree,
@@ -362,7 +430,9 @@ fn configured_preview(preview: crate::infrastructure::config::PreviewMode) -> Pr
     }
 }
 
-/// @brief 将已验证配置颜色降低为 Ratatui 颜色。 / Lower a validated config color to a Ratatui color.
+/// 将已验证配置颜色降低为 Ratatui 颜色。 / Lower a validated config color to a Ratatui color.
+///
+/// <!-- @brief 将已验证配置颜色降低为 Ratatui 颜色。 / Lower a validated config color to a Ratatui color. -->
 fn parse_color(value: &str) -> Color {
     if let Some(hex) = value.strip_prefix('#').filter(|hex| hex.len() == 6)
         && let Ok(rgb) = u32::from_str_radix(hex, 16)
@@ -585,6 +655,7 @@ fn execute_effect<O: TerminalOps>(
         model.editor = None;
     }
     // 成功 mutation 后重读目录，保留符号选择而不是假设旧索引仍有效。
+    // After a successful mutation, reload the catalog and preserve the symbol rather than a stale index.
     if refresh_catalog && !model.should_quit {
         refresh_catalog_and_preview(app, model, preferred_selection.as_deref())?;
     }
@@ -643,7 +714,9 @@ fn mutation_selection_hint(request: &RuntimeRequest, selected: Option<&str>) -> 
     }
 }
 
-/// @brief 仅在变化令牌改变时刷新目录与当前预览。 / Refresh catalog and current preview only when the change token changes.
+/// 仅在变化令牌改变时刷新目录与当前预览。 / Refresh catalog and current preview only when the change token changes.
+///
+/// <!-- @brief 仅在变化令牌改变时刷新目录与当前预览。 / Refresh catalog and current preview only when the change token changes. -->
 fn refresh_if_changed(app: &mut Promptr, model: &mut Model) -> Result<()> {
     let current = app.change_token()?;
     let changed =
@@ -657,7 +730,9 @@ fn refresh_if_changed(app: &mut Promptr, model: &mut Model) -> Result<()> {
     Ok(())
 }
 
-/// @brief 将规范 XML 原样写入剪贴板。 / Write canonical XML unchanged to the clipboard.
+/// 将规范 XML 原样写入剪贴板。 / Write canonical XML unchanged to the clipboard.
+///
+/// <!-- @brief 将规范 XML 原样写入剪贴板。 / Write canonical XML unchanged to the clipboard. -->
 fn copy_xml(xml: &crate::application::CanonicalXml, clipboard: &mut dyn Clipboard) -> Result<()> {
     let text = xml.read_to_string().map_err(|error| {
         Diagnostic::error(
@@ -725,6 +800,7 @@ fn load_fragment_draft(model: &mut Model, symbol: &str, values: &[Value]) -> Res
             )
         })?;
     // 领域 renderer 只转义这三种 XML 文本字符；ampersand 必须最后还原。
+    // The domain renderer escapes only these XML text characters; restore ampersands last.
     let text = encoded
         .replace("&lt;", "<")
         .replace("&gt;", ">")
@@ -766,9 +842,19 @@ fn apply_values(model: &mut Model, values: Vec<Value>) {
     }
 }
 
-/// @brief 以有界内存生成 XML 通知。 / Build an XML notice with bounded memory.
-/// @param xml 规范 XML 值。 / Canonical XML value.
-/// @return 包含长度和有界预览的通知。 / Notice containing length and a bounded preview.
+/// 以有界内存生成 XML 通知。 / Build an XML notice with bounded memory.
+///
+/// # Arguments / 参数
+///
+/// - `xml` — 规范 XML 值。 / Canonical XML value.
+///
+/// # Returns / 返回值
+///
+/// 包含长度和有界预览的通知。 / Notice containing length and a bounded preview.
+///
+/// <!-- @brief 以有界内存生成 XML 通知。 / Build an XML notice with bounded memory. -->
+/// <!-- @param xml 规范 XML 值。 / Canonical XML value. -->
+/// <!-- @return 包含长度和有界预览的通知。 / Notice containing length and a bounded preview. -->
 fn xml_notice(xml: &crate::application::CanonicalXml) -> String {
     const PREVIEW_BYTES: usize = 4096;
     match xml.preview(PREVIEW_BYTES) {
@@ -836,7 +922,9 @@ fn restore_fragment_draft(model: &mut Model, text: String) {
     }
 }
 
-/// @brief 在保存失败后恢复元数据草稿。 / Restore a metadata draft after a failed save.
+/// 在保存失败后恢复元数据草稿。 / Restore a metadata draft after a failed save.
+///
+/// <!-- @brief 在保存失败后恢复元数据草稿。 / Restore a metadata draft after a failed save. -->
 fn restore_metadata_draft(model: &mut Model, text: String) {
     model.mode = super::Mode::MetadataEdit;
     let previous = model.draft.clone().unwrap_or_default();
@@ -847,7 +935,9 @@ fn restore_metadata_draft(model: &mut Model, text: String) {
     }
 }
 
-/// @brief 为预览投影生成只读 DSL。 / Build read-only DSL for a preview projection.
+/// 为预览投影生成只读 DSL。 / Build read-only DSL for a preview projection.
+///
+/// <!-- @brief 为预览投影生成只读 DSL。 / Build read-only DSL for a preview projection. -->
 fn preview_source(symbol: &str, tab: PreviewTab) -> String {
     match tab {
         PreviewTab::Xml | PreviewTab::Content => format!("PRINT {symbol}; OUTPUT {symbol};"),
@@ -855,7 +945,9 @@ fn preview_source(symbol: &str, tab: PreviewTab) -> String {
     }
 }
 
-/// @brief 把类型化运行时值安装到当前预览。 / Install typed runtime values into the current preview.
+/// 把类型化运行时值安装到当前预览。 / Install typed runtime values into the current preview.
+///
+/// <!-- @brief 把类型化运行时值安装到当前预览。 / Install typed runtime values into the current preview. -->
 fn apply_preview_values(model: &mut Model, values: Vec<Value>) -> Result<()> {
     model.preview_diagnostic = None;
     let node = values.iter().find_map(|value| match value {
@@ -909,7 +1001,9 @@ fn apply_preview_values(model: &mut Model, values: Vec<Value>) -> Result<()> {
     Ok(())
 }
 
-/// @brief 从单个 Fragment 规范 XML 恢复精确内容。 / Recover exact content from one Fragment canonical XML.
+/// 从单个 Fragment 规范 XML 恢复精确内容。 / Recover exact content from one Fragment canonical XML.
+///
+/// <!-- @brief 从单个 Fragment 规范 XML 恢复精确内容。 / Recover exact content from one Fragment canonical XML. -->
 fn fragment_preview(
     symbol: &str,
     xml: &crate::application::CanonicalXml,
@@ -948,7 +1042,9 @@ fn fragment_preview(
     ))
 }
 
-/// @brief 在视觉预算内展开命名 DAG 的出现树。 / Expand a named DAG as an occurrence tree within a visual budget.
+/// 在视觉预算内展开命名 DAG 的出现树。 / Expand a named DAG as an occurrence tree within a visual budget.
+///
+/// <!-- @brief 在视觉预算内展开命名 DAG 的出现树。 / Expand a named DAG as an occurrence tree within a visual budget. -->
 fn tree_lines(
     root: &crate::application::NodeView,
     nodes: &[crate::application::NodeView],

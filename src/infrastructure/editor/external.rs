@@ -8,21 +8,51 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::Builder;
 
-/// @brief 外部编辑器 argv 中的暂存文件占位符。 / Staging-file placeholder in external editor argv.
+/// 外部编辑器 argv 中的暂存文件占位符。 / Staging-file placeholder in external editor argv.
+///
+/// <!-- @brief 外部编辑器 argv 中的暂存文件占位符。 / Staging-file placeholder in external editor argv. -->
 const FILE_PLACEHOLDER: &str = "{file}";
 
-/// @brief 通过类型化 argv 启动的外部编辑器。 / External editor launched through typed argv.
+/// 通过类型化 argv 启动的外部编辑器。 / External editor launched through typed argv.
+///
+/// <!-- @brief 通过类型化 argv 启动的外部编辑器。 / External editor launched through typed argv. -->
 #[derive(Clone, Debug)]
 pub struct ExternalTextProvider {
-    /// @brief 程序名与参数，其中恰有一个 `{file}` 参数。 / Program and arguments containing exactly one `{file}` argument.
+    /// 程序名与参数，其中恰有一个 `{file}` 参数。 /
+    /// Program and arguments containing exactly one `{file}` argument.
+    ///
+    /// <!-- @brief 程序名与参数，其中恰有一个 `{file}` 参数。 / Program and arguments containing exactly one `{file}` argument. -->
     argv: Vec<OsString>,
 }
 
 impl ExternalTextProvider {
-    /// @brief 创建不经 shell 的外部编辑器提供者。 / Create an external editor provider that bypasses the shell.
-    /// @param argv 程序名和类型化参数；`{file}` 必须恰好是一个完整参数。 / Program and typed arguments; `{file}` must be exactly one complete argument.
-    /// @return 已验证的提供者，或配置错误。 / Validated provider or a configuration error.
-    /// @note 不执行 shell 展开或字符串拼接。 / No shell expansion or command-string concatenation is performed.
+    /// 创建不经 shell 的外部编辑器提供者。 /
+    /// Creates an external editor provider that bypasses the shell.
+    ///
+    /// # Arguments
+    ///
+    /// * `argv` - 程序名和类型化参数；`{file}` 必须恰好是一个完整参数。 /
+    ///   Program and typed arguments; `{file}` must be exactly one complete argument.
+    ///
+    /// # Returns
+    ///
+    /// 已验证的提供者。 / The validated provider.
+    ///
+    /// # Errors
+    ///
+    /// 命令为空时返回 [`EditorError::EmptyCommand`]；`{file}` 占位符不是恰好一个完整参数时
+    /// 返回 [`EditorError::InvalidFilePlaceholder`]。 / Returns [`EditorError::EmptyCommand`] for an
+    /// empty command and [`EditorError::InvalidFilePlaceholder`] unless `{file}` occurs exactly once
+    /// as a complete argument.
+    ///
+    /// # Notes
+    ///
+    /// 不执行 shell 展开或字符串拼接。 / No shell expansion or command-string concatenation is performed.
+    ///
+    /// <!-- @brief 创建不经 shell 的外部编辑器提供者。 / Create an external editor provider that bypasses the shell. -->
+    /// <!-- @param argv 程序名和类型化参数；`{file}` 必须恰好是一个完整参数。 / Program and typed arguments; `{file}` must be exactly one complete argument. -->
+    /// <!-- @return 已验证的提供者，或配置错误。 / Validated provider or a configuration error. -->
+    /// <!-- @note 不执行 shell 展开或字符串拼接。 / No shell expansion or command-string concatenation is performed. -->
     pub fn new<I, S>(argv: I) -> Result<Self, EditorError>
     where
         I: IntoIterator<Item = S>,
@@ -45,15 +75,31 @@ impl ExternalTextProvider {
         Ok(Self { argv })
     }
 
-    /// @brief 返回原始类型化 argv。 / Return the original typed argv.
-    /// @return 未替换 `{file}` 的 argv。 / Argv with `{file}` still unexpanded.
+    /// 返回原始类型化 argv。 / Returns the original typed argv.
+    ///
+    /// # Returns
+    ///
+    /// 未替换 `{file}` 的 argv。 / The argv with `{file}` still unexpanded.
+    ///
+    /// <!-- @brief 返回原始类型化 argv。 / Return the original typed argv. -->
+    /// <!-- @return 未替换 `{file}` 的 argv。 / Argv with `{file}` still unexpanded. -->
     pub fn argv(&self) -> &[OsString] {
         &self.argv
     }
 
-    /// @brief 为指定暂存路径构建进程命令。 / Build a process command for a staging path.
-    /// @param path 替换 `{file}` 的原生平台路径。 / Native platform path replacing `{file}`.
-    /// @return 不经 shell 的进程命令。 / Process command that bypasses the shell.
+    /// 为指定暂存路径构建进程命令。 / Builds a process command for a staging path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - 替换 `{file}` 的原生平台路径。 / Native platform path replacing `{file}`.
+    ///
+    /// # Returns
+    ///
+    /// 不经 shell 的进程命令。 / A process command that bypasses the shell.
+    ///
+    /// <!-- @brief 为指定暂存路径构建进程命令。 / Build a process command for a staging path. -->
+    /// <!-- @param path 替换 `{file}` 的原生平台路径。 / Native platform path replacing `{file}`. -->
+    /// <!-- @return 不经 shell 的进程命令。 / Process command that bypasses the shell. -->
     fn command_for(&self, path: &Path) -> Command {
         let mut command = Command::new(&self.argv[0]);
         command.args(self.argv.iter().skip(1).map(|argument| {
@@ -68,6 +114,12 @@ impl ExternalTextProvider {
 }
 
 impl TextProvider for ExternalTextProvider {
+    /// 在暂存文件上运行已配置的外部编辑器。 /
+    /// Runs the configured external editor against a staging file.
+    ///
+    /// <!-- @brief 在暂存文件上运行已配置的外部编辑器。 / Run the configured external editor against a staging file. -->
+    /// <!-- @param request 包含原文与并发标识的编辑请求。 / Edit request containing original text and concurrency identity. -->
+    /// <!-- @return 已保存的预备编辑或可观测错误。 / Saved prepared edit or an observable error. -->
     fn edit(&mut self, request: EditRequest) -> Result<EditorOutcome, EditorError> {
         let mut staging = Builder::new()
             .prefix("promptr-edit-")

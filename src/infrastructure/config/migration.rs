@@ -14,32 +14,65 @@ use super::{
     ParsedConfig, RawConfig,
 };
 
-/// @brief 配置迁移操作结果 / Configuration migration operation result.
+/// 配置迁移操作结果 / Configuration migration operation result.
+///
+/// <!-- @brief 配置迁移操作结果 / Configuration migration operation result. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationOutcome {
-    /// @brief 文件已是当前版本 / File is already current.
+    /// 文件已是当前版本 / File is already current.
+    ///
+    /// <!-- @brief 文件已是当前版本 / File is already current. -->
     AlreadyCurrent,
-    /// @brief 检查模式发现需要迁移 / Check mode found a pending migration.
+    /// 检查模式发现需要迁移 / Check mode found a pending migration.
+    ///
+    /// <!-- @brief 检查模式发现需要迁移 / Check mode found a pending migration. -->
     WouldMigrate {
-        /// @brief 原版本 / Original version.
+        /// 原版本 / Original version.
+        ///
+        /// <!-- @brief 原版本 / Original version. -->
         from: u32,
-        /// @brief 目标版本 / Target version.
+        /// 目标版本 / Target version.
+        ///
+        /// <!-- @brief 目标版本 / Target version. -->
         to: u32,
     },
-    /// @brief 已原子替换并保留备份 / File was atomically replaced and a backup retained.
+    /// 已原子替换并保留备份 / File was atomically replaced and a backup retained.
+    ///
+    /// <!-- @brief 已原子替换并保留备份 / File was atomically replaced and a backup retained. -->
     Migrated {
-        /// @brief 原版本 / Original version.
+        /// 原版本 / Original version.
+        ///
+        /// <!-- @brief 原版本 / Original version. -->
         from: u32,
-        /// @brief 目标版本 / Target version.
+        /// 目标版本 / Target version.
+        ///
+        /// <!-- @brief 目标版本 / Target version. -->
         to: u32,
-        /// @brief 原始字节备份 / Backup containing the original bytes.
+        /// 原始字节备份 / Backup containing the original bytes.
+        ///
+        /// <!-- @brief 原始字节备份 / Backup containing the original bytes. -->
         backup: PathBuf,
     },
 }
 
-/// @brief 检查配置可解析性和迁移需求，不写文件 / Checks parseability and migration need without writing.
-/// @param path 配置路径 / Configuration path.
-/// @return 检查结果或诊断 / Check outcome or diagnostics.
+/// 检查配置可解析性和迁移需求，不写文件 / Checks parseability and migration need without writing.
+///
+/// <!-- @brief 检查配置可解析性和迁移需求，不写文件 / Checks parseability and migration need without writing. -->
+/// # Arguments
+///
+/// - `path`: 配置路径 / Configuration path.
+///
+/// # Returns
+///
+/// 检查结果 / The check outcome.
+///
+/// # Errors
+///
+/// 文件不可读、TOML 无法解析或配置无效时返回全部诊断 / Returns all diagnostics when
+/// the file cannot be read, the TOML cannot be parsed, or the configuration is invalid.
+///
+/// <!-- @param path 配置路径 / Configuration path. -->
+/// <!-- @return 检查结果或诊断 / Check outcome or diagnostics. -->
 pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>> {
     let text = fs::read_to_string(path).map_err(|error| io_diagnostics(path, error))?;
     let parsed = ParsedConfig::parse(&text, path.display().to_string())?;
@@ -58,10 +91,30 @@ pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>
     }
 }
 
-/// @brief 显式迁移配置，保留原文备份 / Explicitly migrates configuration while retaining original bytes.
-/// @param path 配置路径 / Configuration path.
-/// @return 迁移结果或诊断 / Migration outcome or diagnostics.
-/// @note 普通加载不调用此函数 / Ordinary loading does not call this function.
+/// 显式迁移配置，保留原文备份 / Explicitly migrates configuration while retaining original bytes.
+///
+/// <!-- @brief 显式迁移配置，保留原文备份 / Explicitly migrates configuration while retaining original bytes. -->
+/// # Arguments
+///
+/// - `path`: 配置路径 / Configuration path.
+///
+/// # Returns
+///
+/// 迁移结果 / The migration outcome.
+///
+/// # Errors
+///
+/// 无法锁定、读取、验证、备份或原子替换配置文件时返回全部诊断 / Returns all diagnostics
+/// when the configuration file cannot be locked, read, validated, backed up, or atomically
+/// replaced.
+///
+/// # Notes
+///
+/// 普通加载不调用此函数 / Ordinary loading does not call this function.
+///
+/// <!-- @param path 配置路径 / Configuration path. -->
+/// <!-- @return 迁移结果或诊断 / Migration outcome or diagnostics. -->
+/// <!-- @note 普通加载不调用此函数 / Ordinary loading does not call this function. -->
 pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>> {
     let _lock = ConfigLock::acquire(path)?;
     let original = fs::read(path).map_err(|error| io_diagnostics(path, error))?;
@@ -137,11 +190,33 @@ pub(super) fn upgrade_document(
     Ok(())
 }
 
-/// @brief 按完整独立配置语义验证迁移结果 / Validates a migration result as a complete standalone configuration.
-/// @param raw 已升级至当前模式的原始配置 / Raw configuration upgraded to the current schema.
-/// @param path 配置文件路径 / Configuration file path.
-/// @return 配置有效时返回空值，否则返回全部诊断 / Unit on success, or all diagnostics.
-/// @note 普通分层加载仍允许跨层补全字段；该检查仅用于独立文件检查与迁移 / Ordinary layered loading may still complete fields across layers; this check is only for standalone checking and migration.
+/// 按完整独立配置语义验证迁移结果 / Validates a migration result as a complete standalone configuration.
+///
+/// <!-- @brief 按完整独立配置语义验证迁移结果 / Validates a migration result as a complete standalone configuration. -->
+/// # Arguments
+///
+/// - `raw`: 已升级至当前模式的原始配置 / Raw configuration upgraded to the current schema.
+/// - `path`: 配置文件路径 / Configuration file path.
+///
+/// # Returns
+///
+/// 配置有效时返回空值 / Returns unit when the configuration is valid.
+///
+/// # Errors
+///
+/// 独立配置无效时返回全部诊断 / Returns all diagnostics when the standalone configuration
+/// is invalid.
+///
+/// # Notes
+///
+/// 普通分层加载仍允许跨层补全字段；该检查仅用于独立文件检查与迁移 / Ordinary layered
+/// loading may still complete fields across layers; this check is only for standalone checking
+/// and migration.
+///
+/// <!-- @param raw 已升级至当前模式的原始配置 / Raw configuration upgraded to the current schema. -->
+/// <!-- @param path 配置文件路径 / Configuration file path. -->
+/// <!-- @return 配置有效时返回空值，否则返回全部诊断 / Unit on success, or all diagnostics. -->
+/// <!-- @note 普通分层加载仍允许跨层补全字段；该检查仅用于独立文件检查与迁移 / Ordinary layered loading may still complete fields across layers; this check is only for standalone checking and migration. -->
 fn validate_standalone(raw: RawConfig, path: &Path) -> Result<(), Vec<ConfigDiagnostic>> {
     let source = path.display().to_string();
     let overlay = raw.validate_at(&source)?;

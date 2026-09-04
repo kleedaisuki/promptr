@@ -19,15 +19,33 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
-/// @brief 可替换的终端生命周期后端。 / Replaceable terminal-lifecycle backend.
+/// 可替换的终端生命周期后端。 / Replaceable terminal-lifecycle backend.
+///
+/// <!-- @brief 可替换的终端生命周期后端。 / Replaceable terminal-lifecycle backend. -->
 pub trait TerminalOps: Send + 'static {
-    /// @brief 进入交互终端模式。 / Enter interactive terminal mode.
+    /// 进入交互终端模式。 / Enter interactive terminal mode.
+    ///
+    /// <!-- @brief 进入交互终端模式。 / Enter interactive terminal mode. -->
+    ///
+    /// # Errors
+    ///
+    /// 当后端无法启用任一请求的终端能力时返回 I/O 错误。 /
+    /// Returns an I/O error when the backend cannot enable a requested terminal capability.
     fn enter(&mut self, mouse: bool) -> io::Result<()>;
-    /// @brief 恢复普通终端模式。 / Restore ordinary terminal mode.
+    /// 恢复普通终端模式。 / Restore ordinary terminal mode.
+    ///
+    /// <!-- @brief 恢复普通终端模式。 / Restore ordinary terminal mode. -->
+    ///
+    /// # Errors
+    ///
+    /// 当后端无法恢复一个或多个终端能力时返回 I/O 错误。 /
+    /// Returns an I/O error when the backend cannot restore one or more terminal capabilities.
     fn restore(&mut self, mouse: bool) -> io::Result<()>;
 }
 
-/// @brief 使用标准输出的 Crossterm 生命周期后端。 / Crossterm lifecycle backend using standard output.
+/// 使用标准输出的 Crossterm 生命周期后端。 / Crossterm lifecycle backend using standard output.
+///
+/// <!-- @brief 使用标准输出的 Crossterm 生命周期后端。 / Crossterm lifecycle backend using standard output. -->
 #[derive(Debug, Default)]
 pub struct CrosstermOps;
 
@@ -85,7 +103,9 @@ impl Drop for PanicHookGuard {
     }
 }
 
-/// @brief RAII 终端会话，恢复操作可安全重复调用。 / RAII terminal session with safely repeatable restoration.
+/// RAII 终端会话，恢复操作可安全重复调用。 / RAII terminal session with safely repeatable restoration.
+///
+/// <!-- @brief RAII 终端会话，恢复操作可安全重复调用。 / RAII terminal session with safely repeatable restoration. -->
 pub struct TerminalSession<O: TerminalOps = CrosstermOps> {
     ops: Arc<Mutex<O>>,
     active: Arc<AtomicBool>,
@@ -95,11 +115,23 @@ pub struct TerminalSession<O: TerminalOps = CrosstermOps> {
 }
 
 impl<O: TerminalOps> TerminalSession<O> {
-    /// @brief 进入终端；失败时补偿任何已发生的部分副作用。 / Enter the terminal, compensating any partial side effects on failure.
-    /// @param ops 生命周期后端。 / Lifecycle backend.
-    /// @param active 会话活动状态。 / Session activity state.
-    /// @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled.
-    /// @return 成功时返回空值，失败时返回原始进入错误。 / Unit on success, or the original entry error on failure.
+    /// 进入终端；失败时补偿任何已发生的部分副作用。 / Enter the terminal, compensating any partial side effects on failure.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `ops` — 生命周期后端。 / Lifecycle backend.
+    /// - `active` — 会话活动状态。 / Session activity state.
+    /// - `mouse` — 是否启用鼠标捕获。 / Whether mouse capture is enabled.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 成功时返回空值，失败时返回原始进入错误。 / Unit on success, or the original entry error on failure.
+    ///
+    /// <!-- @brief 进入终端；失败时补偿任何已发生的部分副作用。 / Enter the terminal, compensating any partial side effects on failure. -->
+    /// <!-- @param ops 生命周期后端。 / Lifecycle backend. -->
+    /// <!-- @param active 会话活动状态。 / Session activity state. -->
+    /// <!-- @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled. -->
+    /// <!-- @return 成功时返回空值，失败时返回原始进入错误。 / Unit on success, or the original entry error on failure. -->
     fn enter(ops: &Arc<Mutex<O>>, active: &AtomicBool, mouse: bool) -> io::Result<()> {
         active.store(false, Ordering::Release);
         let mut ops = ops.lock().unwrap_or_else(|error| error.into_inner());
@@ -115,10 +147,27 @@ impl<O: TerminalOps> TerminalSession<O> {
         }
     }
 
-    /// @brief 进入终端并安装链式 panic 恢复钩子。 / Enter the terminal and install a chained panic-restoration hook.
-    /// @param ops 生命周期后端。 / Lifecycle backend.
-    /// @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled.
-    /// @return 活跃会话或底层 I/O 错误。 / Active session or underlying I/O error.
+    /// 进入终端并安装链式 panic 恢复钩子。 / Enter the terminal and install a chained panic-restoration hook.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `ops` — 生命周期后端。 / Lifecycle backend.
+    /// - `mouse` — 是否启用鼠标捕获。 / Whether mouse capture is enabled.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 活跃会话或底层 I/O 错误。 / Active session or underlying I/O error.
+    ///
+    /// # Errors
+    ///
+    /// 当进入原始模式、备用屏幕或可选鼠标捕获失败时返回 I/O 错误；已发生的部分副作用会被补偿。 /
+    /// Returns an I/O error when entering raw mode, the alternate screen, or optional mouse capture
+    /// fails; any partial side effects are compensated.
+    ///
+    /// <!-- @brief 进入终端并安装链式 panic 恢复钩子。 / Enter the terminal and install a chained panic-restoration hook. -->
+    /// <!-- @param ops 生命周期后端。 / Lifecycle backend. -->
+    /// <!-- @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled. -->
+    /// <!-- @return 活跃会话或底层 I/O 错误。 / Active session or underlying I/O error. -->
     pub fn start(ops: O, mouse: bool) -> io::Result<Self> {
         let hook_lock = PANIC_HOOK_LOCK
             .lock()
@@ -163,7 +212,15 @@ impl<O: TerminalOps> TerminalSession<O> {
         })
     }
 
-    /// @brief 幂等恢复终端。 / Restore the terminal idempotently.
+    /// 幂等恢复终端。 / Restore the terminal idempotently.
+    ///
+    /// <!-- @brief 幂等恢复终端。 / Restore the terminal idempotently. -->
+    ///
+    /// # Errors
+    ///
+    /// 当活动后端无法撤销终端能力时返回 I/O 错误；非活动会话总是成功。 /
+    /// Returns an I/O error when the active backend cannot undo terminal capabilities; an inactive
+    /// session always succeeds.
     pub fn restore(&mut self) -> io::Result<()> {
         if !self.active.swap(false, Ordering::AcqRel) {
             return Ok(());
@@ -174,9 +231,25 @@ impl<O: TerminalOps> TerminalSession<O> {
             .restore(self.mouse)
     }
 
-    /// @brief 暂停 TUI 执行外部编辑器，并在返回后恢复 TUI。 / Suspend the TUI around an external editor and resume afterward.
-    /// @param operation 在普通终端模式执行的操作。 / Operation run in ordinary terminal mode.
-    /// @return 外部操作结果，或重新进入终端的 I/O 错误。 / External result, or an I/O error while re-entering.
+    /// 暂停 TUI 执行外部编辑器，并在返回后恢复 TUI。 / Suspend the TUI around an external editor and resume afterward.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `operation` — 在普通终端模式执行的操作。 / Operation run in ordinary terminal mode.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 外部操作结果，或重新进入终端的 I/O 错误。 / External result, or an I/O error while re-entering.
+    ///
+    /// # Errors
+    ///
+    /// 当会话无法恢复普通终端状态，或操作完成后无法重新进入交互模式时返回 I/O 错误。 /
+    /// Returns an I/O error when the session cannot restore ordinary terminal state or cannot
+    /// re-enter interactive mode after the operation.
+    ///
+    /// <!-- @brief 暂停 TUI 执行外部编辑器，并在返回后恢复 TUI。 / Suspend the TUI around an external editor and resume afterward. -->
+    /// <!-- @param operation 在普通终端模式执行的操作。 / Operation run in ordinary terminal mode. -->
+    /// <!-- @return 外部操作结果，或重新进入终端的 I/O 错误。 / External result, or an I/O error while re-entering. -->
     pub fn suspend<T>(&mut self, operation: impl FnOnce() -> T) -> io::Result<T> {
         self.restore()?;
         let result = operation();

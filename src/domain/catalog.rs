@@ -6,13 +6,29 @@ use std::{
 
 use super::{DomainError, Node, NodeBody, NodeId, Symbol};
 
-/// @brief 规范 XML 渲染失败。 / Canonical XML rendering failure.
+/// 规范 XML 渲染失败。 / Canonical XML rendering failure.
+///
+/// <!-- @brief 规范 XML 渲染失败。 / Canonical XML rendering failure. -->
 #[derive(Debug)]
 pub enum RenderError {
-    /// @brief 快照违反领域不变量。 / Snapshot violates a domain invariant.
-    Domain(DomainError),
-    /// @brief 输出汇写入失败。 / Output sink write failure.
-    Io(io::Error),
+    /// 快照违反领域不变量。 / Snapshot violates a domain invariant.
+    ///
+    /// <!-- @brief 快照违反领域不变量。 / Snapshot violates a domain invariant. -->
+    Domain(
+        /// 违反的领域不变量。 / Violated domain invariant.
+        ///
+        /// <!-- @brief 违反的领域不变量。 / Violated domain invariant. -->
+        DomainError,
+    ),
+    /// 输出汇写入失败。 / Output sink write failure.
+    ///
+    /// <!-- @brief 输出汇写入失败。 / Output sink write failure. -->
+    Io(
+        /// 底层输出汇返回的 I/O 错误。 / I/O error returned by the underlying sink.
+        ///
+        /// <!-- @brief 底层输出汇返回的 I/O 错误。 / I/O error returned by the underlying sink. -->
+        io::Error,
+    ),
 }
 
 impl fmt::Display for RenderError {
@@ -45,19 +61,40 @@ impl From<io::Error> for RenderError {
     }
 }
 
-/// @brief 已完整校验的不可变内存目录快照。 / Fully validated immutable in-memory catalog snapshot.
+/// 已完整校验的不可变内存目录快照。 / Fully validated immutable in-memory catalog snapshot.
+///
+/// <!-- @brief 已完整校验的不可变内存目录快照。 / Fully validated immutable in-memory catalog snapshot. -->
 #[derive(Debug, Clone, Default)]
 pub struct CatalogSnapshot {
-    /// @brief 按稳定内部标识索引的节点。 / Nodes indexed by stable internal identity.
+    /// 按稳定内部标识索引的节点。 / Nodes indexed by stable internal identity.
+    ///
+    /// <!-- @brief 按稳定内部标识索引的节点。 / Nodes indexed by stable internal identity. -->
     nodes: BTreeMap<NodeId, Node>,
-    /// @brief 全局唯一的符号绑定。 / Globally unique symbol bindings.
+    /// 全局唯一的符号绑定。 / Globally unique symbol bindings.
+    ///
+    /// <!-- @brief 全局唯一的符号绑定。 / Globally unique symbol bindings. -->
     symbols: BTreeMap<Symbol, NodeId>,
 }
 
 impl CatalogSnapshot {
-    /// @brief 建立快照并验证唯一性、引用完整性和无环性。 / Build a snapshot and validate uniqueness, references, and acyclicity.
-    /// @param nodes 无顺序要求的节点集合。 / Node collection with no ordering requirement.
-    /// @return 有效快照或领域错误。 / Valid snapshot or domain error.
+    /// 建立快照并验证唯一性、引用完整性和无环性。 / Build a snapshot and validate uniqueness, references, and acyclicity.
+    ///
+    /// # Arguments
+    ///
+    /// - `nodes` — 无顺序要求的节点集合。 / Node collection with no ordering requirement.
+    ///
+    /// # Returns
+    /// 有效快照或领域错误。 / Valid snapshot or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当节点身份或符号重复、头体种类不一致、引用悬空或图含有环时返回相应的 [`DomainError`]。 /
+    /// Returns the corresponding [`DomainError`] when node identities or symbols are duplicated,
+    /// header and body kinds disagree, a reference is dangling, or the graph contains a cycle.
+    ///
+    /// <!-- @brief 建立快照并验证唯一性、引用完整性和无环性。 / Build a snapshot and validate uniqueness, references, and acyclicity. -->
+    /// <!-- @param nodes 无顺序要求的节点集合。 / Node collection with no ordering requirement. -->
+    /// <!-- @return 有效快照或领域错误。 / Valid snapshot or domain error. -->
     pub fn new(nodes: impl IntoIterator<Item = Node>) -> Result<Self, DomainError> {
         let mut snapshot = Self::default();
         for node in nodes {
@@ -92,41 +129,88 @@ impl CatalogSnapshot {
         Ok(snapshot)
     }
 
-    /// @brief 返回节点数量。 / Return the node count.
-    /// @return 节点数量。 / Node count.
+    /// 返回节点数量。 / Return the node count.
+    ///
+    /// # Returns
+    /// 节点数量。 / Node count.
+    ///
+    /// <!-- @brief 返回节点数量。 / Return the node count. -->
+    /// <!-- @return 节点数量。 / Node count. -->
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
-    /// @brief 判断快照是否为空。 / Test whether the snapshot is empty.
-    /// @return 为空时为真。 / True when empty.
+    /// 判断快照是否为空。 / Test whether the snapshot is empty.
+    ///
+    /// # Returns
+    /// 为空时为真。 / True when empty.
+    ///
+    /// <!-- @brief 判断快照是否为空。 / Test whether the snapshot is empty. -->
+    /// <!-- @return 为空时为真。 / True when empty. -->
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
-    /// @brief 按 ID 查询节点。 / Look up a node by id.
-    /// @param id 节点 ID。 / Node id.
-    /// @return 可选节点引用。 / Optional node reference.
+    /// 按 ID 查询节点。 / Look up a node by id.
+    ///
+    /// # Arguments
+    ///
+    /// - `id` — 节点 ID。 / Node id.
+    ///
+    /// # Returns
+    /// 可选节点引用。 / Optional node reference.
+    ///
+    /// <!-- @brief 按 ID 查询节点。 / Look up a node by id. -->
+    /// <!-- @param id 节点 ID。 / Node id. -->
+    /// <!-- @return 可选节点引用。 / Optional node reference. -->
     pub fn get(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(&id)
     }
 
-    /// @brief 按符号查询节点。 / Look up a node by symbol.
-    /// @param symbol 节点符号。 / Node symbol.
-    /// @return 可选节点引用。 / Optional node reference.
+    /// 按符号查询节点。 / Look up a node by symbol.
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol` — 节点符号。 / Node symbol.
+    ///
+    /// # Returns
+    /// 可选节点引用。 / Optional node reference.
+    ///
+    /// <!-- @brief 按符号查询节点。 / Look up a node by symbol. -->
+    /// <!-- @param symbol 节点符号。 / Node symbol. -->
+    /// <!-- @return 可选节点引用。 / Optional node reference. -->
     pub fn get_by_symbol(&self, symbol: &Symbol) -> Option<&Node> {
         self.symbols.get(symbol).and_then(|id| self.nodes.get(id))
     }
 
-    /// @brief 按符号字节序迭代全部节点。 / Iterate all nodes in bytewise symbol order.
-    /// @return 节点迭代器。 / Node iterator.
+    /// 按符号字节序迭代全部节点。 / Iterate all nodes in bytewise symbol order.
+    ///
+    /// # Returns
+    /// 节点迭代器。 / Node iterator.
+    ///
+    /// <!-- @brief 按符号字节序迭代全部节点。 / Iterate all nodes in bytewise symbol order. -->
+    /// <!-- @return 节点迭代器。 / Node iterator. -->
     pub fn iter_by_symbol(&self) -> impl ExactSizeIterator<Item = &Node> {
         self.symbols.values().map(|id| &self.nodes[id])
     }
 
-    /// @brief 迭代计算从起点可达的唯一节点集合。 / Iteratively compute unique nodes reachable from a root.
-    /// @param root 起始节点。 / Root node.
-    /// @return 包含起点的可达集合。 / Reachable set including the root.
+    /// 迭代计算从起点可达的唯一节点集合。 / Iteratively compute unique nodes reachable from a root.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 起始节点。 / Root node.
+    ///
+    /// # Returns
+    /// 包含起点的可达集合。 / Reachable set including the root.
+    ///
+    /// # Errors
+    ///
+    /// 当 `root` 或遍历到的引用不在快照中时返回 [`DomainError::MissingNode`]。 /
+    /// Returns [`DomainError::MissingNode`] when `root` or a traversed reference is absent.
+    ///
+    /// <!-- @brief 迭代计算从起点可达的唯一节点集合。 / Iteratively compute unique nodes reachable from a root. -->
+    /// <!-- @param root 起始节点。 / Root node. -->
+    /// <!-- @return 包含起点的可达集合。 / Reachable set including the root. -->
     pub fn reachable(&self, root: NodeId) -> Result<BTreeSet<NodeId>, DomainError> {
         if !self.nodes.contains_key(&root) {
             return Err(DomainError::MissingNode(root));
@@ -149,19 +233,53 @@ impl CatalogSnapshot {
         Ok(seen)
     }
 
-    /// @brief 判断目标是否可由起点到达。 / Test whether a target is reachable from a root.
-    /// @param root 起点。 / Root.
-    /// @param target 目标。 / Target.
-    /// @return 可达性。 / Reachability.
+    /// 判断目标是否可由起点到达。 / Test whether a target is reachable from a root.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 起点。 / Root.
+    /// - `target` — 目标。 / Target.
+    ///
+    /// # Returns
+    /// 可达性。 / Reachability.
+    ///
+    /// # Errors
+    ///
+    /// 当 `root` 或遍历到的引用不在快照中时返回 [`DomainError::MissingNode`]。 /
+    /// Returns [`DomainError::MissingNode`] when `root` or a traversed reference is absent.
+    ///
+    /// <!-- @brief 判断目标是否可由起点到达。 / Test whether a target is reachable from a root. -->
+    /// <!-- @param root 起点。 / Root. -->
+    /// <!-- @param target 目标。 / Target. -->
+    /// <!-- @return 可达性。 / Reachability. -->
     pub fn is_reachable(&self, root: NodeId, target: NodeId) -> Result<bool, DomainError> {
         Ok(self.reachable(root)?.contains(&target))
     }
 
-    /// @brief 校验替换 Prompt 子列表不会引入悬空引用或环。 / Validate that replacing prompt children introduces neither dangling references nor cycles.
-    /// @param parent 被替换的 Prompt。 / Prompt being replaced.
-    /// @param children 候选子列表，可保留重复项。 / Candidate children, with duplicates preserved.
-    /// @return 校验成功或领域错误。 / Success or domain error.
-    /// @note 该函数不修改快照。 / This function does not mutate the snapshot.
+    /// 校验替换 Prompt 子列表不会引入悬空引用或环。 / Validate that replacing prompt children introduces neither dangling references nor cycles.
+    ///
+    /// # Arguments
+    ///
+    /// - `parent` — 被替换的 Prompt。 / Prompt being replaced.
+    /// - `children` — 候选子列表，可保留重复项。 / Candidate children, with duplicates preserved.
+    ///
+    /// # Returns
+    /// 校验成功或领域错误。 / Success or domain error.
+    ///
+    /// # Notes
+    /// 该函数不修改快照。 / This function does not mutate the snapshot.
+    ///
+    /// # Errors
+    ///
+    /// 当父节点或任一子节点不存在、子列表为空，或替换会形成环时返回相应的 [`DomainError`]。 /
+    /// Returns the corresponding [`DomainError`] when the parent or a child is absent, the child
+    /// list is empty, or the replacement would introduce a cycle.
+    ///
+    /// <!-- @brief 校验替换 Prompt 子列表不会引入悬空引用或环。 / Validate that replacing prompt children introduces neither dangling references nor cycles. -->
+    /// <!-- @param parent 被替换的 Prompt。 / Prompt being replaced. -->
+    /// <!-- @param children 候选子列表，可保留重复项。 / Candidate children, with duplicates preserved. -->
+    /// <!-- @return 校验成功或领域错误。 / Success or domain error. -->
+    /// <!-- @note 该函数不修改快照。 / This function does not mutate the snapshot. -->
     pub fn validate_replacement(
         &self,
         parent: NodeId,
@@ -184,9 +302,24 @@ impl CatalogSnapshot {
         Ok(())
     }
 
-    /// @brief 计算完全展开树中每个节点的路径出现次数。 / Count path occurrences of every node in the fully expanded tree.
-    /// @param root 展开根。 / Expansion root.
-    /// @return 仅含可达节点的计数，根计为一次。 / Counts for reachable nodes only, with root counted once.
+    /// 计算完全展开树中每个节点的路径出现次数。 / Count path occurrences of every node in the fully expanded tree.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 展开根。 / Expansion root.
+    ///
+    /// # Returns
+    /// 仅含可达节点的计数，根计为一次。 / Counts for reachable nodes only, with root counted once.
+    ///
+    /// # Errors
+    ///
+    /// 当根或引用不存在、可达子图含环，或任一出现次数超过 `u64::MAX` 时返回相应的 [`DomainError`]。 /
+    /// Returns the corresponding [`DomainError`] when the root or a reference is absent, the
+    /// reachable subgraph contains a cycle, or an occurrence count exceeds `u64::MAX`.
+    ///
+    /// <!-- @brief 计算完全展开树中每个节点的路径出现次数。 / Count path occurrences of every node in the fully expanded tree. -->
+    /// <!-- @param root 展开根。 / Expansion root. -->
+    /// <!-- @return 仅含可达节点的计数，根计为一次。 / Counts for reachable nodes only, with root counted once. -->
     pub fn occurrence_counts(&self, root: NodeId) -> Result<BTreeMap<NodeId, u64>, DomainError> {
         let reachable = self.reachable(root)?;
         let mut incoming: BTreeMap<NodeId, usize> = reachable.iter().map(|&id| (id, 0)).collect();
@@ -241,10 +374,28 @@ impl CatalogSnapshot {
         Ok(counts)
     }
 
-    /// @brief 以饱和算术计算完全展开树中的路径出现次数。 / Count expanded-tree path occurrences with saturating arithmetic.
-    /// @param root 展开根。 / Expansion root.
-    /// @return 可达节点计数；超过 `u64::MAX` 的值固定为该上限。 / Reachable-node counts, clamped to `u64::MAX` on overflow.
-    /// @note 该查询不会因出现次数溢出而失败；结构损坏仍返回领域错误。 / Occurrence overflow never fails this query; structural corruption still returns a domain error.
+    /// 以饱和算术计算完全展开树中的路径出现次数。 / Count expanded-tree path occurrences with saturating arithmetic.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 展开根。 / Expansion root.
+    ///
+    /// # Returns
+    /// 可达节点计数；超过 `u64::MAX` 的值固定为该上限。 / Reachable-node counts, clamped to `u64::MAX` on overflow.
+    ///
+    /// # Notes
+    /// 该查询不会因出现次数溢出而失败；结构损坏仍返回领域错误。 / Occurrence overflow never fails this query; structural corruption still returns a domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当根或引用不存在，或可达子图含环时返回相应的 [`DomainError`]。 /
+    /// Returns the corresponding [`DomainError`] when the root or a reference is absent or the
+    /// reachable subgraph contains a cycle.
+    ///
+    /// <!-- @brief 以饱和算术计算完全展开树中的路径出现次数。 / Count expanded-tree path occurrences with saturating arithmetic. -->
+    /// <!-- @param root 展开根。 / Expansion root. -->
+    /// <!-- @return 可达节点计数；超过 `u64::MAX` 的值固定为该上限。 / Reachable-node counts, clamped to `u64::MAX` on overflow. -->
+    /// <!-- @note 该查询不会因出现次数溢出而失败；结构损坏仍返回领域错误。 / Occurrence overflow never fails this query; structural corruption still returns a domain error. -->
     pub fn occurrence_counts_saturating(
         &self,
         root: NodeId,
@@ -298,11 +449,30 @@ impl CatalogSnapshot {
         Ok(counts)
     }
 
-    /// @brief 以迭代算法把规范 XML 写入输出汇。 / Iteratively write canonical XML to a sink.
-    /// @param root 根节点。 / Root node.
-    /// @param sink 字节输出汇。 / Byte sink.
-    /// @return 成功或渲染错误。 / Success or rendering error.
-    /// @note 输出仅转义 `&<>`，并在根元素后恰好追加一个 LF。 / Output escapes only `&<>` and appends exactly one LF after the root element.
+    /// 以迭代算法把规范 XML 写入输出汇。 / Iteratively write canonical XML to a sink.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 根节点。 / Root node.
+    /// - `sink` — 字节输出汇。 / Byte sink.
+    ///
+    /// # Returns
+    /// 成功或渲染错误。 / Success or rendering error.
+    ///
+    /// # Notes
+    /// 输出仅转义 `&<>`，并在根元素后恰好追加一个 LF。 / Output escapes only `&<>` and appends exactly one LF after the root element.
+    ///
+    /// # Errors
+    ///
+    /// 当根或引用不存在时返回 [`RenderError::Domain`]；写入输出汇失败时返回 [`RenderError::Io`]。 /
+    /// Returns [`RenderError::Domain`] when the root or a reference is absent and
+    /// [`RenderError::Io`] when writing to the sink fails.
+    ///
+    /// <!-- @brief 以迭代算法把规范 XML 写入输出汇。 / Iteratively write canonical XML to a sink. -->
+    /// <!-- @param root 根节点。 / Root node. -->
+    /// <!-- @param sink 字节输出汇。 / Byte sink. -->
+    /// <!-- @return 成功或渲染错误。 / Success or rendering error. -->
+    /// <!-- @note 输出仅转义 `&<>`，并在根元素后恰好追加一个 LF。 / Output escapes only `&<>` and appends exactly one LF after the root element. -->
     pub fn render_xml<W: Write>(&self, root: NodeId, sink: &mut W) -> Result<(), RenderError> {
         enum Task {
             Visit(NodeId),
@@ -339,9 +509,24 @@ impl CatalogSnapshot {
         Ok(())
     }
 
-    /// @brief 返回规范 XML 字节。 / Return canonical XML bytes.
-    /// @param root 根节点。 / Root node.
-    /// @return UTF-8 XML 字节或渲染错误。 / UTF-8 XML bytes or rendering error.
+    /// 返回规范 XML 字节。 / Return canonical XML bytes.
+    ///
+    /// # Arguments
+    ///
+    /// - `root` — 根节点。 / Root node.
+    ///
+    /// # Returns
+    /// UTF-8 XML 字节或渲染错误。 / UTF-8 XML bytes or rendering error.
+    ///
+    /// # Errors
+    ///
+    /// 当根或引用不存在，或内存输出汇写入失败时返回相应的 [`RenderError`]。 /
+    /// Returns the corresponding [`RenderError`] when the root or a reference is absent or writing
+    /// to the in-memory sink fails.
+    ///
+    /// <!-- @brief 返回规范 XML 字节。 / Return canonical XML bytes. -->
+    /// <!-- @param root 根节点。 / Root node. -->
+    /// <!-- @return UTF-8 XML 字节或渲染错误。 / UTF-8 XML bytes or rendering error. -->
     pub fn render_xml_vec(&self, root: NodeId) -> Result<Vec<u8>, RenderError> {
         let mut output = Vec::new();
         self.render_xml(root, &mut output)?;

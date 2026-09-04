@@ -9,20 +9,32 @@ use std::{
 };
 use tempfile::{Builder, NamedTempFile};
 
-/// @brief XML 在内存中保留的最大字节数。 / Maximum XML bytes retained in memory.
+/// XML 在内存中保留的最大字节数。 / Maximum XML bytes retained in memory.
+///
+/// <!-- @brief XML 在内存中保留的最大字节数。 / Maximum XML bytes retained in memory. -->
 pub const XML_MEMORY_LIMIT: usize = 16 * 1024 * 1024;
 
-/// @brief 落盘 XML 的固定写缓冲区字节数。 / Fixed write-buffer size for spilled XML.
+/// 落盘 XML 的固定写缓冲区字节数。 / Fixed write-buffer size for spilled XML.
+///
+/// <!-- @brief 落盘 XML 的固定写缓冲区字节数。 / Fixed write-buffer size for spilled XML. -->
 const XML_SPILL_BUFFER_SIZE: usize = 64 * 1024;
 
-/// @brief 规范 XML 的共享存储。 / Shared storage for canonical XML.
+/// 规范 XML 的共享存储。 / Shared storage for canonical XML.
+///
+/// <!-- @brief 规范 XML 的共享存储。 / Shared storage for canonical XML. -->
 enum XmlStorage {
     Memory(Vec<u8>),
     Spilled(NamedTempFile),
 }
 
-/// @brief 可克隆、自清理的规范 XML 值对象。 / Cloneable, self-cleaning canonical XML value object.
-/// @note 大于 16 MiB 的值使用拥有权临时文件，在最后一个克隆销毁时删除。 / Values larger than 16 MiB use an owned temporary file, removed with the last clone.
+/// 可克隆、自清理的规范 XML 值对象。 / Cloneable, self-cleaning canonical XML value object.
+///
+/// <!-- @brief 可克隆、自清理的规范 XML 值对象。 / Cloneable, self-cleaning canonical XML value object. -->
+///
+/// # Notes
+/// 大于 16 MiB 的值使用拥有权临时文件，在最后一个克隆销毁时删除。 / Values larger than 16 MiB use an owned temporary file, removed with the last clone.
+///
+/// <!-- @note 大于 16 MiB 的值使用拥有权临时文件，在最后一个克隆销毁时删除。 / Values larger than 16 MiB use an owned temporary file, removed with the last clone. -->
 #[derive(Clone)]
 pub struct CanonicalXml {
     storage: Arc<XmlStorage>,
@@ -30,21 +42,47 @@ pub struct CanonicalXml {
 }
 
 impl CanonicalXml {
-    /// @brief 返回 XML UTF-8 字节数。 / Return the XML UTF-8 byte length.
-    /// @return 字节数。 / Byte length.
+    /// 返回 XML UTF-8 字节数。 / Return the XML UTF-8 byte length.
+    ///
+    /// <!-- @brief 返回 XML UTF-8 字节数。 / Return the XML UTF-8 byte length. -->
+    ///
+    /// # Returns
+    /// 字节数。 / Byte length.
+    ///
+    /// <!-- @return 字节数。 / Byte length. -->
     pub const fn len(&self) -> usize {
         self.len
     }
 
-    /// @brief 判断 XML 是否为空。 / Return whether the XML is empty.
-    /// @return 空值返回 true。 / True for an empty value.
+    /// 判断 XML 是否为空。 / Return whether the XML is empty.
+    ///
+    /// <!-- @brief 判断 XML 是否为空。 / Return whether the XML is empty. -->
+    ///
+    /// # Returns
+    /// 空值返回 true。 / True for an empty value.
+    ///
+    /// <!-- @return 空值返回 true。 / True for an empty value. -->
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    /// @brief 把 XML 流式写入输出汇。 / Stream XML into an output sink.
-    /// @param writer 目标字节流。 / Destination byte stream.
-    /// @return 写入成功或 I/O 错误。 / Success or an I/O error.
+    /// 把 XML 流式写入输出汇。 / Stream XML into an output sink.
+    ///
+    /// <!-- @brief 把 XML 流式写入输出汇。 / Stream XML into an output sink. -->
+    ///
+    /// # Arguments
+    /// - `writer`: 目标字节流。 / Destination byte stream.
+    /// <!-- @param writer 目标字节流。 / Destination byte stream. -->
+    ///
+    /// # Returns
+    /// 写入成功或 I/O 错误。 / Success or an I/O error.
+    ///
+    /// <!-- @return 写入成功或 I/O 错误。 / Success or an I/O error. -->
+    ///
+    /// # Errors
+    /// 当落盘值无法重新打开、读取，或目标输出汇拒绝写入时返回 I/O 错误。 /
+    /// Returns an I/O error when a spilled value cannot be reopened or read, or when the destination
+    /// sink rejects a write.
     pub fn write_to(&self, writer: &mut dyn Write) -> io::Result<()> {
         match self.storage.as_ref() {
             XmlStorage::Memory(bytes) => writer.write_all(bytes),
@@ -55,9 +93,24 @@ impl CanonicalXml {
         }
     }
 
-    /// @brief 为 JSON/API 边界读取完整 UTF-8 字符串。 / Read the complete UTF-8 string for JSON/API boundaries.
-    /// @return 完整文本或 I/O/UTF-8 错误。 / Complete text or an I/O/UTF-8 error.
-    /// @note 该 API 按完整值分配内存；常规展示应使用 `write_to`。 / This allocates for the full value; normal presentation should use `write_to`.
+    /// 为 JSON/API 边界读取完整 UTF-8 字符串。 / Read the complete UTF-8 string for JSON/API boundaries.
+    ///
+    /// <!-- @brief 为 JSON/API 边界读取完整 UTF-8 字符串。 / Read the complete UTF-8 string for JSON/API boundaries. -->
+    ///
+    /// # Returns
+    /// 完整文本或 I/O/UTF-8 错误。 / Complete text or an I/O/UTF-8 error.
+    ///
+    /// <!-- @return 完整文本或 I/O/UTF-8 错误。 / Complete text or an I/O/UTF-8 error. -->
+    ///
+    /// # Errors
+    /// 当落盘值无法重新打开或读取，或存储字节不是有效 UTF-8 时返回 I/O 错误。 /
+    /// Returns an I/O error when a spilled value cannot be reopened or read, or when its bytes are
+    /// not valid UTF-8.
+    ///
+    /// # Notes
+    /// 该 API 按完整值分配内存；常规展示应使用 `write_to`。 / This allocates for the full value; normal presentation should use `write_to`.
+    ///
+    /// <!-- @note 该 API 按完整值分配内存；常规展示应使用 `write_to`。 / This allocates for the full value; normal presentation should use `write_to`. -->
     pub fn read_to_string(&self) -> io::Result<String> {
         match self.storage.as_ref() {
             XmlStorage::Memory(bytes) => String::from_utf8(bytes.clone())
@@ -70,9 +123,23 @@ impl CanonicalXml {
         }
     }
 
-    /// @brief 以有界内存构造显示预览。 / Build a display preview with bounded memory.
-    /// @param budget 最大 UTF-8 字节数。 / Maximum UTF-8 bytes.
-    /// @return 不拆分字符的前缀。 / Prefix that does not split a character.
+    /// 以有界内存构造显示预览。 / Build a display preview with bounded memory.
+    ///
+    /// <!-- @brief 以有界内存构造显示预览。 / Build a display preview with bounded memory. -->
+    ///
+    /// # Arguments
+    /// - `budget`: 最大 UTF-8 字节数。 / Maximum UTF-8 bytes.
+    /// <!-- @param budget 最大 UTF-8 字节数。 / Maximum UTF-8 bytes. -->
+    ///
+    /// # Returns
+    /// 不拆分字符的前缀。 / Prefix that does not split a character.
+    ///
+    /// <!-- @return 不拆分字符的前缀。 / Prefix that does not split a character. -->
+    ///
+    /// # Errors
+    /// 当落盘值无法重新打开或读取，或内部字节违反规范 UTF-8 不变量时返回 I/O 错误。 /
+    /// Returns an I/O error when a spilled value cannot be reopened or read, or when internal bytes
+    /// violate the canonical UTF-8 invariant.
     pub fn preview(&self, budget: usize) -> io::Result<String> {
         let prefix_len = budget.min(self.len);
         let mut bytes = match self.storage.as_ref() {
@@ -95,9 +162,18 @@ impl CanonicalXml {
         String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
-    /// @brief 返回 XML 是否包含文本模式。 / Return whether XML contains a text pattern.
-    /// @param pattern 待查找模式。 / Pattern to find.
-    /// @return 包含时返回 true。 / True when contained.
+    /// 返回 XML 是否包含文本模式。 / Return whether XML contains a text pattern.
+    ///
+    /// <!-- @brief 返回 XML 是否包含文本模式。 / Return whether XML contains a text pattern. -->
+    ///
+    /// # Arguments
+    /// - `pattern`: 待查找模式。 / Pattern to find.
+    /// <!-- @param pattern 待查找模式。 / Pattern to find. -->
+    ///
+    /// # Returns
+    /// 包含时返回 true。 / True when contained.
+    ///
+    /// <!-- @return 包含时返回 true。 / True when contained. -->
     pub fn contains(&self, pattern: &str) -> bool {
         self.read_to_string().is_ok_and(|xml| xml.contains(pattern))
     }
@@ -110,8 +186,14 @@ impl CanonicalXml {
         }
     }
 
-    /// @brief 返回该值实际占用的聚合内存预算。 / Return the aggregate memory budget occupied by this value.
-    /// @return 内存值的字节数；落盘值返回零。 / Byte length for memory values; zero for spilled values.
+    /// 返回该值实际占用的聚合内存预算。 / Return the aggregate memory budget occupied by this value.
+    ///
+    /// <!-- @brief 返回该值实际占用的聚合内存预算。 / Return the aggregate memory budget occupied by this value. -->
+    ///
+    /// # Returns
+    /// 内存值的字节数；落盘值返回零。 / Byte length for memory values; zero for spilled values.
+    ///
+    /// <!-- @return 内存值的字节数；落盘值返回零。 / Byte length for memory values; zero for spilled values. -->
     pub(crate) fn resident_len(&self) -> usize {
         match self.storage.as_ref() {
             XmlStorage::Memory(bytes) => bytes.len(),
@@ -159,10 +241,24 @@ impl PartialEq for CanonicalXml {
     }
 }
 
-/// @brief 以固定内存精确比较两个 XML 流。 / Exactly compare two XML streams with fixed memory.
-/// @param left 左值。 / Left value.
-/// @param right 右值。 / Right value.
-/// @return 是否逐字节相等，或 I/O 错误。 / Byte equality or an I/O error.
+/// 以固定内存精确比较两个 XML 流。 / Exactly compare two XML streams with fixed memory.
+///
+/// <!-- @brief 以固定内存精确比较两个 XML 流。 / Exactly compare two XML streams with fixed memory. -->
+///
+/// # Arguments
+/// - `left`: 左值。 / Left value.
+/// <!-- @param left 左值。 / Left value. -->
+/// - `right`: 右值。 / Right value.
+/// <!-- @param right 右值。 / Right value. -->
+///
+/// # Returns
+/// 是否逐字节相等，或 I/O 错误。 / Byte equality or an I/O error.
+///
+/// <!-- @return 是否逐字节相等，或 I/O 错误。 / Byte equality or an I/O error. -->
+///
+/// # Errors
+/// 当任一落盘值无法重新打开或读取时返回 I/O 错误。 /
+/// Returns an I/O error when either spilled value cannot be reopened or read.
 fn equal_streams(left: &CanonicalXml, right: &CanonicalXml) -> io::Result<bool> {
     fn reader(xml: &CanonicalXml) -> io::Result<Box<dyn Read + '_>> {
         Ok(match xml.storage.as_ref() {
@@ -197,7 +293,9 @@ impl<'de> Deserialize<'de> for CanonicalXml {
     }
 }
 
-/// @brief 在内存与拥有权临时文件间自动切换的 XML 写入器。 / XML writer that automatically switches from memory to an owned temporary file.
+/// 在内存与拥有权临时文件间自动切换的 XML 写入器。 / XML writer that automatically switches from memory to an owned temporary file.
+///
+/// <!-- @brief 在内存与拥有权临时文件间自动切换的 XML 写入器。 / XML writer that automatically switches from memory to an owned temporary file. -->
 pub struct SpillWriter {
     state: SpillState,
     len: usize,
@@ -209,16 +307,35 @@ enum SpillState {
 }
 
 impl SpillWriter {
-    /// @brief 使用 16 MiB 阈值创建写入器。 / Create a writer with the 16 MiB threshold.
-    /// @return 空写入器。 / Empty writer.
+    /// 使用 16 MiB 阈值创建写入器。 / Create a writer with the 16 MiB threshold.
+    ///
+    /// <!-- @brief 使用 16 MiB 阈值创建写入器。 / Create a writer with the 16 MiB threshold. -->
+    ///
+    /// # Returns
+    /// 空写入器。 / Empty writer.
+    ///
+    /// <!-- @return 空写入器。 / Empty writer. -->
     pub fn new() -> Self {
         Self::with_threshold(XML_MEMORY_LIMIT)
     }
 
-    /// @brief 使用指定阈值创建写入器。 / Create a writer with a specified threshold.
-    /// @param threshold 内存中允许的最大字节数。 / Maximum bytes allowed in memory.
-    /// @return 空写入器。 / Empty writer.
-    /// @note 超过 16 MiB 的阈值会被限制到 16 MiB。 / Thresholds above 16 MiB are clamped to 16 MiB.
+    /// 使用指定阈值创建写入器。 / Create a writer with a specified threshold.
+    ///
+    /// <!-- @brief 使用指定阈值创建写入器。 / Create a writer with a specified threshold. -->
+    ///
+    /// # Arguments
+    /// - `threshold`: 内存中允许的最大字节数。 / Maximum bytes allowed in memory.
+    /// <!-- @param threshold 内存中允许的最大字节数。 / Maximum bytes allowed in memory. -->
+    ///
+    /// # Returns
+    /// 空写入器。 / Empty writer.
+    ///
+    /// <!-- @return 空写入器。 / Empty writer. -->
+    ///
+    /// # Notes
+    /// 超过 16 MiB 的阈值会被限制到 16 MiB。 / Thresholds above 16 MiB are clamped to 16 MiB.
+    ///
+    /// <!-- @note 超过 16 MiB 的阈值会被限制到 16 MiB。 / Thresholds above 16 MiB are clamped to 16 MiB. -->
     pub fn with_threshold(threshold: usize) -> Self {
         Self {
             state: SpillState::Memory(Vec::new()),
@@ -227,8 +344,19 @@ impl SpillWriter {
         }
     }
 
-    /// @brief 完成写入并转移为共享值对象。 / Finish writing and transfer into a shared value object.
-    /// @return 规范 XML 或刷新错误。 / Canonical XML or a flush error.
+    /// 完成写入并转移为共享值对象。 / Finish writing and transfer into a shared value object.
+    ///
+    /// <!-- @brief 完成写入并转移为共享值对象。 / Finish writing and transfer into a shared value object. -->
+    ///
+    /// # Returns
+    /// 规范 XML 或刷新错误。 / Canonical XML or a flush error.
+    ///
+    /// <!-- @return 规范 XML 或刷新错误。 / Canonical XML or a flush error. -->
+    ///
+    /// # Errors
+    /// 当落盘缓冲区无法刷新或解包为拥有权临时文件时返回 I/O 错误。 /
+    /// Returns an I/O error when the spill buffer cannot be flushed or converted back into its owned
+    /// temporary file.
     pub fn finish(mut self) -> io::Result<CanonicalXml> {
         self.flush()?;
         let storage = match self.state {
@@ -290,45 +418,79 @@ impl Write for SpillWriter {
     }
 }
 
-/// @brief 面向宿主的节点投影。 / Node projection exposed to hosts.
+/// 面向宿主的节点投影。 / Node projection exposed to hosts.
+///
+/// <!-- @brief 面向宿主的节点投影。 / Node projection exposed to hosts. -->
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeView {
-    /// @brief 稳定内部标识。 / Stable internal identity.
+    /// 稳定内部标识。 / Stable internal identity.
+    ///
+    /// <!-- @brief 稳定内部标识。 / Stable internal identity. -->
     pub id: NodeId,
-    /// @brief 可见符号。 / Visible symbol.
+    /// 可见符号。 / Visible symbol.
+    ///
+    /// <!-- @brief 可见符号。 / Visible symbol. -->
     pub symbol: Symbol,
-    /// @brief 节点种类。 / Node kind.
+    /// 节点种类。 / Node kind.
+    ///
+    /// <!-- @brief 节点种类。 / Node kind. -->
     pub kind: NodeKind,
-    /// @brief 修订号。 / Revision.
+    /// 修订号。 / Revision.
+    ///
+    /// <!-- @brief 修订号。 / Revision. -->
     pub revision: Revision,
-    /// @brief 有序直接子符号。 / Ordered direct child symbols.
+    /// 有序直接子符号。 / Ordered direct child symbols.
+    ///
+    /// <!-- @brief 有序直接子符号。 / Ordered direct child symbols. -->
     pub children: Vec<Symbol>,
-    /// @brief 片段字节数。 / Fragment byte length.
+    /// 片段字节数。 / Fragment byte length.
+    ///
+    /// <!-- @brief 片段字节数。 / Fragment byte length. -->
     pub byte_size: Option<usize>,
-    /// @brief 用户元数据。 / User metadata.
+    /// 用户元数据。 / User metadata.
+    ///
+    /// <!-- @brief 用户元数据。 / User metadata. -->
     pub metadata: Metadata,
 }
 
-/// @brief 搜索命中的稳定接口投影。 / Stable interface projection of a search hit.
+/// 搜索命中的稳定接口投影。 / Stable interface projection of a search hit.
+///
+/// <!-- @brief 搜索命中的稳定接口投影。 / Stable interface projection of a search hit. -->
 pub type SearchHitView = SearchHit;
 
-/// @brief 解释器产生的类型化值。 / Typed value produced by the interpreter.
+/// 解释器产生的类型化值。 / Typed value produced by the interpreter.
+///
+/// <!-- @brief 解释器产生的类型化值。 / Typed value produced by the interpreter. -->
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
-    /// @brief 无负载的成功。 / Successful operation without a payload.
+    /// 无负载的成功。 / Successful operation without a payload.
+    ///
+    /// <!-- @brief 无负载的成功。 / Successful operation without a payload. -->
     Unit,
-    /// @brief 人类向文本。 / Human-oriented text.
+    /// 人类向文本。 / Human-oriented text.
+    ///
+    /// <!-- @brief 人类向文本。 / Human-oriented text. -->
     Text(String),
-    /// @brief 规范 XML 字节的 UTF-8 表示。 / UTF-8 representation of canonical XML bytes.
+    /// 规范 XML 字节的 UTF-8 表示。 / UTF-8 representation of canonical XML bytes.
+    ///
+    /// <!-- @brief 规范 XML 字节的 UTF-8 表示。 / UTF-8 representation of canonical XML bytes. -->
     Xml(CanonicalXml),
-    /// @brief 单节点投影。 / One node projection.
+    /// 单节点投影。 / One node projection.
+    ///
+    /// <!-- @brief 单节点投影。 / One node projection. -->
     Node(NodeView),
-    /// @brief 节点列表。 / Node list.
+    /// 节点列表。 / Node list.
+    ///
+    /// <!-- @brief 节点列表。 / Node list. -->
     Nodes(Vec<NodeView>),
-    /// @brief 搜索结果。 / Search results.
+    /// 搜索结果。 / Search results.
+    ///
+    /// <!-- @brief 搜索结果。 / Search results. -->
     SearchResults(Vec<SearchHitView>),
-    /// @brief 用户元数据。 / User metadata.
+    /// 用户元数据。 / User metadata.
+    ///
+    /// <!-- @brief 用户元数据。 / User metadata. -->
     Metadata(Metadata),
 }
 

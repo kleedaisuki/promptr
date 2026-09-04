@@ -1,34 +1,68 @@
-//! UTF-8 字节精确词法器。
+//! UTF-8 字节精确词法器。 / UTF-8 byte-accurate lexer.
 
 use super::ast::{DiagnosticCode, ParseDiagnostic, Span};
 
-/// @brief 词法单元类别 / Lexical token kind.
+/// 词法单元类别 / Lexical token kind.
+///
+/// <!-- @brief 词法单元类别 / Lexical token kind. -->
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TokenKind {
+    /// 未加引号的标识符。 / Unquoted identifier.
     Ident(String),
+    /// 已解码的字符串字面量。 / Decoded string literal.
     String(String),
+    /// `:` 标点。 / `:` punctuation.
     Colon,
+    /// `[` 标点。 / `[` punctuation.
     LBracket,
+    /// `]` 标点。 / `]` punctuation.
     RBracket,
+    /// `,` 标点。 / `,` punctuation.
     Comma,
+    /// `;` 标点。 / `;` punctuation.
     Semicolon,
+    /// 输入结束哨兵。 / End-of-input sentinel.
     Eof,
 }
 
-/// @brief 带位置的词法单元 / A positioned lexical token.
+/// 带位置的词法单元 / A positioned lexical token.
+///
+/// <!-- @brief 带位置的词法单元 / A positioned lexical token. -->
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Token {
+    /// 词法单元的类别与值。 / Token kind and value.
     pub(crate) kind: TokenKind,
+    /// 词法单元在源码中的区间。 / Token's source span.
     pub(crate) span: Span,
 }
 
-/// @brief 词法失败类型 / Lexing failure classification.
+/// 词法失败类型 / Lexing failure classification.
+///
+/// <!-- @brief 词法失败类型 / Lexing failure classification. -->
 pub(crate) enum LexError {
+    /// 输入前缀合法，但仍需要更多字符。 / Valid prefix requiring more input.
     Incomplete(ParseDiagnostic),
+    /// 输入已确定无效。 / Definitely invalid input.
     Invalid(ParseDiagnostic),
 }
 
-/// @brief 将源码切分为词法单元 / Tokenizes source text.
+/// 将源码切分为词法单元 / Tokenizes source text.
+///
+/// <!-- @brief 将源码切分为词法单元 / Tokenizes source text. -->
+///
+/// # Arguments
+///
+/// - `source`：要切分的 UTF-8 DSL 源码。 / UTF-8 DSL source to tokenize.
+///
+/// <!-- @param source 要切分的 UTF-8 DSL 源码。 / UTF-8 DSL source to tokenize. -->
+///
+/// # Errors
+///
+/// 当字符、转义或 REPL 专用语法无效时返回 [`LexError::Invalid`]；当字符串尚未闭合时返回 [`LexError::Incomplete`]。 /
+/// Returns [`LexError::Invalid`] for invalid characters, escapes, or REPL-only syntax, and
+/// [`LexError::Incomplete`] for an unterminated string.
+///
+/// <!-- @return 词法单元，或包含精确源码位置的词法错误。 / Tokens or a lexical error with an exact source span. -->
 pub(crate) fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let mut offset = 0;
@@ -110,10 +144,12 @@ pub(crate) fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     Ok(tokens)
 }
 
+/// 判断字符能否开始 DSL 符号。 / Tests whether a character can start a DSL symbol.
 fn is_symbol_start(ch: char) -> bool {
     ch.is_ascii_alphabetic() || ch == '_'
 }
 
+/// 记录一个 ASCII 标点并前移字节偏移。 / Records one ASCII punctuation token and advances the byte offset.
 fn push_punct(tokens: &mut Vec<Token>, kind: TokenKind, start: usize, offset: &mut usize) {
     *offset += 1;
     tokens.push(Token {
@@ -122,6 +158,13 @@ fn push_punct(tokens: &mut Vec<Token>, kind: TokenKind, start: usize, offset: &m
     });
 }
 
+/// 从当前双引号处读取并解码字符串。 / Reads and decodes a string starting at the current double quote.
+///
+/// # Errors
+///
+/// 转义无效时返回 [`LexError::Invalid`]，字符串未闭合时返回 [`LexError::Incomplete`]。 /
+/// Returns [`LexError::Invalid`] for invalid escapes and [`LexError::Incomplete`] when the
+/// closing quote is absent.
 fn read_string(source: &str, offset: &mut usize) -> Result<Token, LexError> {
     let start = *offset;
     *offset += 1;
@@ -180,6 +223,7 @@ fn read_string(source: &str, offset: &mut usize) -> Result<Token, LexError> {
     )))
 }
 
+/// 构造一个带稳定代码和源码位置的诊断。 / Builds a diagnostic with a stable code and source span.
 fn diag(code: DiagnosticCode, message: impl Into<String>, span: Span) -> ParseDiagnostic {
     ParseDiagnostic {
         code,

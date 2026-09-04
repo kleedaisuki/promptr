@@ -13,48 +13,92 @@ use super::{
     RawConfig, SearchField,
 };
 
-/// @brief 配置值的来源类别 / Kind of configuration value source.
+/// 配置值的来源类别 / Kind of configuration value source.
+///
+/// <!-- @brief 配置值的来源类别 / Kind of configuration value source. -->
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum ConfigSource {
-    /// @brief 内建默认 / Built-in default.
+    /// 内建默认 / Built-in default.
+    ///
+    /// <!-- @brief 内建默认 / Built-in default. -->
     Builtin,
-    /// @brief 平台用户文件 / Platform user file.
+    /// 平台用户文件 / Platform user file.
+    ///
+    /// <!-- @brief 平台用户文件 / Platform user file. -->
     UserFile(PathBuf),
-    /// @brief 显式选择的文件 / Explicitly selected file.
+    /// 显式选择的文件 / Explicitly selected file.
+    ///
+    /// <!-- @brief 显式选择的文件 / Explicitly selected file. -->
     ExplicitFile(PathBuf),
-    /// @brief 环境变量 / Environment variable.
+    /// 环境变量 / Environment variable.
+    ///
+    /// <!-- @brief 环境变量 / Environment variable. -->
     Environment(String),
-    /// @brief CLI 选项 / CLI option.
+    /// CLI 选项 / CLI option.
+    ///
+    /// <!-- @brief CLI 选项 / CLI option. -->
     Cli(String),
 }
 
-/// @brief 生效值的来源记录 / Provenance record for an effective value.
+/// 生效值的来源记录 / Provenance record for an effective value.
+///
+/// <!-- @brief 生效值的来源记录 / Provenance record for an effective value. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Provenance {
-    /// @brief 当前来源 / Winning source.
+    /// 当前来源 / Winning source.
+    ///
+    /// <!-- @brief 当前来源 / Winning source. -->
     pub source: ConfigSource,
-    /// @brief 被覆盖的旧来源，按覆盖顺序排列 / Replaced sources in overlay order.
+    /// 被覆盖的旧来源，按覆盖顺序排列 / Replaced sources in overlay order.
+    ///
+    /// <!-- @brief 被覆盖的旧来源，按覆盖顺序排列 / Replaced sources in overlay order. -->
     pub overridden: Vec<ConfigSource>,
 }
 
-/// @brief 已解析但未合并的无损文档 / Parsed, unmerged lossless document.
+/// 已解析但未合并的无损文档 / Parsed, unmerged lossless document.
+///
+/// <!-- @brief 已解析但未合并的无损文档 / Parsed, unmerged lossless document. -->
 #[derive(Debug, Clone)]
 pub struct ParsedConfig {
-    /// @brief 保留注释和排版的 TOML AST / TOML AST preserving comments and formatting.
+    /// 保留注释和排版的 TOML AST / TOML AST preserving comments and formatting.
+    ///
+    /// <!-- @brief 保留注释和排版的 TOML AST / TOML AST preserving comments and formatting. -->
     pub document: DocumentMut,
-    /// @brief 版本化原始结构 / Versioned raw structure.
+    /// 版本化原始结构 / Versioned raw structure.
+    ///
+    /// <!-- @brief 版本化原始结构 / Versioned raw structure. -->
     pub raw: RawConfig,
-    /// @brief 文件中的原始模式版本 / Original schema version in the file.
+    /// 文件中的原始模式版本 / Original schema version in the file.
+    ///
+    /// <!-- @brief 文件中的原始模式版本 / Original schema version in the file. -->
     pub input_schema_version: u32,
-    /// @brief 未知键等结构诊断 / Structural diagnostics such as unknown keys.
+    /// 未知键等结构诊断 / Structural diagnostics such as unknown keys.
+    ///
+    /// <!-- @brief 未知键等结构诊断 / Structural diagnostics such as unknown keys. -->
     pub diagnostics: Vec<ConfigDiagnostic>,
 }
 
 impl ParsedConfig {
-    /// @brief 无损解析 TOML 文本 / Parses TOML text losslessly.
-    /// @param text TOML 文本 / TOML text.
-    /// @param source 用于诊断的源名 / Source name used by diagnostics.
-    /// @return 解析文档或语法诊断 / Parsed document or syntax diagnostic.
+    /// 无损解析 TOML 文本 / Parses TOML text losslessly.
+    ///
+    /// <!-- @brief 无损解析 TOML 文本 / Parses TOML text losslessly. -->
+    /// # Arguments
+    ///
+    /// - `text`: TOML 文本 / TOML text.
+    /// - `source`: 用于诊断的源名 / Source name used by diagnostics.
+    ///
+    /// # Returns
+    ///
+    /// 保留排版的解析文档 / A parsed document that preserves formatting.
+    ///
+    /// # Errors
+    ///
+    /// TOML 语法、模式版本或结构无效时返回全部诊断 / Returns all diagnostics when the
+    /// TOML syntax, schema version, or structure is invalid.
+    ///
+    /// <!-- @param text TOML 文本 / TOML text. -->
+    /// <!-- @param source 用于诊断的源名 / Source name used by diagnostics. -->
+    /// <!-- @return 解析文档或语法诊断 / Parsed document or syntax diagnostic. -->
     pub fn parse(text: &str, source: impl Into<String>) -> Result<Self, Vec<ConfigDiagnostic>> {
         let source = source.into();
         let document = text.parse::<DocumentMut>().map_err(|error| {
@@ -109,25 +153,41 @@ impl ParsedConfig {
     }
 }
 
-/// @brief 单个有来源的已类型化覆盖层 / One sourced typed overlay layer.
+/// 单个有来源的已类型化覆盖层 / One sourced typed overlay layer.
+///
+/// <!-- @brief 单个有来源的已类型化覆盖层 / One sourced typed overlay layer. -->
 #[derive(Debug, Clone)]
 pub struct ConfigLayer {
-    /// @brief 层的来源 / Layer source.
+    /// 层的来源 / Layer source.
+    ///
+    /// <!-- @brief 层的来源 / Layer source. -->
     pub source: ConfigSource,
-    /// @brief 逐字段覆盖 / Field-wise overlay.
+    /// 逐字段覆盖 / Field-wise overlay.
+    ///
+    /// <!-- @brief 逐字段覆盖 / Field-wise overlay. -->
     pub overlay: ConfigOverlay,
 }
 
-/// @brief 可注入环境变量集 / Injectable environment variable set.
+/// 可注入环境变量集 / Injectable environment variable set.
+///
+/// <!-- @brief 可注入环境变量集 / Injectable environment variable set. -->
 #[derive(Debug, Clone, Default)]
 pub struct Environment {
-    /// @brief 环境变量名值表 / Environment name-value map.
+    /// 环境变量名值表 / Environment name-value map.
+    ///
+    /// <!-- @brief 环境变量名值表 / Environment name-value map. -->
     pub values: BTreeMap<String, OsString>,
 }
 
 impl Environment {
-    /// @brief 捕获当前进程环境 / Captures the current process environment.
-    /// @return 可测试的环境快照 / Testable environment snapshot.
+    /// 捕获当前进程环境 / Captures the current process environment.
+    ///
+    /// <!-- @brief 捕获当前进程环境 / Captures the current process environment. -->
+    /// # Returns
+    ///
+    /// 可测试的环境快照 / A testable environment snapshot.
+    ///
+    /// <!-- @return 可测试的环境快照 / A testable environment snapshot. -->
     pub fn current() -> Self {
         const KNOWN: &[&str] = &[
             "PROMPTR_CONFIG",
@@ -146,56 +206,96 @@ impl Environment {
     }
 }
 
-/// @brief 配置加载请求 / Configuration loading request.
+/// 配置加载请求 / Configuration loading request.
+///
+/// <!-- @brief 配置加载请求 / Configuration loading request. -->
 #[derive(Debug, Clone, Default)]
 pub struct LoadRequest {
-    /// @brief 是否禁用所有文件层 / Whether all file layers are disabled.
+    /// 是否禁用所有文件层 / Whether all file layers are disabled.
+    ///
+    /// <!-- @brief 是否禁用所有文件层 / Whether all file layers are disabled. -->
     pub no_config: bool,
-    /// @brief 可选用户配置路径覆盖 / Optional user configuration path override.
+    /// 可选用户配置路径覆盖 / Optional user configuration path override.
+    ///
+    /// <!-- @brief 可选用户配置路径覆盖 / Optional user configuration path override. -->
     pub user_config: Option<PathBuf>,
-    /// @brief `--config` 或 `PROMPTR_CONFIG` 选中的显式文件 / Explicit file selected by `--config` or `PROMPTR_CONFIG`.
+    /// `--config` 或 `PROMPTR_CONFIG` 选中的显式文件 / Explicit file selected by `--config` or `PROMPTR_CONFIG`.
+    ///
+    /// <!-- @brief `--config` 或 `PROMPTR_CONFIG` 选中的显式文件 / Explicit file selected by `--config` or `PROMPTR_CONFIG`. -->
     pub explicit_config: Option<PathBuf>,
-    /// @brief 环境覆盖 / Environment overrides.
+    /// 环境覆盖 / Environment overrides.
+    ///
+    /// <!-- @brief 环境覆盖 / Environment overrides. -->
     pub environment: Environment,
-    /// @brief CLI 覆盖 / CLI overrides.
+    /// CLI 覆盖 / CLI overrides.
+    ///
+    /// <!-- @brief CLI 覆盖 / CLI overrides. -->
     pub cli: ConfigOverlay,
 }
 
-/// @brief 加载成功的配置及来源 / Successfully loaded configuration and provenance.
+/// 加载成功的配置及来源 / Successfully loaded configuration and provenance.
+///
+/// <!-- @brief 加载成功的配置及来源 / Successfully loaded configuration and provenance. -->
 #[derive(Debug, Clone)]
 pub struct LoadedConfig {
-    /// @brief 经验证配置 / Validated configuration.
+    /// 经验证配置 / Validated configuration.
+    ///
+    /// <!-- @brief 经验证配置 / Validated configuration. -->
     pub config: Config,
-    /// @brief 按点分键索引的来源 / Provenance indexed by dotted key.
+    /// 按点分键索引的来源 / Provenance indexed by dotted key.
+    ///
+    /// <!-- @brief 按点分键索引的来源 / Provenance indexed by dotted key. -->
     pub provenance: BTreeMap<String, Provenance>,
-    /// @brief 非阻止诊断 / Non-blocking diagnostics.
+    /// 非阻止诊断 / Non-blocking diagnostics.
+    ///
+    /// <!-- @brief 非阻止诊断 / Non-blocking diagnostics. -->
     pub diagnostics: Vec<ConfigDiagnostic>,
 }
 
-/// @brief `config show --effective` 的稳定 DTO / Stable DTO for `config show --effective`.
+/// `config show --effective` 的稳定 DTO / Stable DTO for `config show --effective`.
+///
+/// <!-- @brief `config show --effective` 的稳定 DTO / Stable DTO for `config show --effective`. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EffectiveConfig {
-    /// @brief 按键排序的生效项 / Effective entries sorted by key.
+    /// 按键排序的生效项 / Effective entries sorted by key.
+    ///
+    /// <!-- @brief 按键排序的生效项 / Effective entries sorted by key. -->
     pub entries: Vec<EffectiveEntry>,
 }
 
-/// @brief 单个生效配置项 / One effective configuration entry.
+/// 单个生效配置项 / One effective configuration entry.
+///
+/// <!-- @brief 单个生效配置项 / One effective configuration entry. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EffectiveEntry {
-    /// @brief 点分键 / Dotted key.
+    /// 点分键 / Dotted key.
+    ///
+    /// <!-- @brief 点分键 / Dotted key. -->
     pub key: String,
-    /// @brief TOML 风格值 / TOML-style value.
+    /// TOML 风格值 / TOML-style value.
+    ///
+    /// <!-- @brief TOML 风格值 / TOML-style value. -->
     pub value: String,
-    /// @brief 来源 / Provenance.
+    /// 来源 / Provenance.
+    ///
+    /// <!-- @brief 来源 / Provenance. -->
     pub provenance: Provenance,
 }
 
-/// @brief `config explain` 结果 DTO / Result DTO for `config explain`.
+/// `config explain` 结果 DTO / Result DTO for `config explain`.
+///
+/// <!-- @brief `config explain` 结果 DTO / Result DTO for `config explain`. -->
 pub type ExplainValue = EffectiveEntry;
 
 impl LoadedConfig {
-    /// @brief 生成全部生效值 DTO / Builds the complete effective-value DTO.
-    /// @return 稳定排序的值和来源 / Stably sorted values and provenance.
+    /// 生成全部生效值 DTO / Builds the complete effective-value DTO.
+    ///
+    /// <!-- @brief 生成全部生效值 DTO / Builds the complete effective-value DTO. -->
+    /// # Returns
+    ///
+    /// 稳定排序的值和来源 / Stably sorted values and provenance.
+    ///
+    /// <!-- @return 稳定排序的值和来源 / Stably sorted values and provenance. -->
     pub fn effective(&self) -> EffectiveConfig {
         let values = config_values(&self.config);
         let entries = values
@@ -213,9 +313,19 @@ impl LoadedConfig {
         EffectiveConfig { entries }
     }
 
-    /// @brief 解释单个点分键 / Explains one dotted key.
-    /// @param key 点分键 / Dotted key.
-    /// @return 值和来源，未知键返回 None / Value and provenance, or None for an unknown key.
+    /// 解释单个点分键 / Explains one dotted key.
+    ///
+    /// <!-- @brief 解释单个点分键 / Explains one dotted key. -->
+    /// # Arguments
+    ///
+    /// - `key`: 点分键 / Dotted key.
+    ///
+    /// # Returns
+    ///
+    /// 值和来源，未知键返回 [`None`] / Value and provenance, or [`None`] for an unknown key.
+    ///
+    /// <!-- @param key 点分键 / Dotted key. -->
+    /// <!-- @return 值和来源，未知键返回 None / Value and provenance, or None for an unknown key. -->
     pub fn explain(&self, key: &str) -> Option<ExplainValue> {
         self.effective()
             .entries
@@ -224,24 +334,54 @@ impl LoadedConfig {
     }
 }
 
-/// @brief 无全局单例的配置加载器 / Configuration loader without a global singleton.
+/// 无全局单例的配置加载器 / Configuration loader without a global singleton.
+///
+/// <!-- @brief 无全局单例的配置加载器 / Configuration loader without a global singleton. -->
 #[derive(Debug, Clone)]
 pub struct ConfigLoader {
-    /// @brief 平台目录 / Platform directories.
+    /// 平台目录 / Platform directories.
+    ///
+    /// <!-- @brief 平台目录 / Platform directories. -->
     pub paths: ConfigPaths,
 }
 
 impl ConfigLoader {
-    /// @brief 创建加载器 / Creates a loader.
-    /// @param paths 平台目录 / Platform directories.
-    /// @return 加载器 / Loader.
+    /// 创建加载器 / Creates a loader.
+    ///
+    /// <!-- @brief 创建加载器 / Creates a loader. -->
+    /// # Arguments
+    ///
+    /// - `paths`: 平台目录 / Platform directories.
+    ///
+    /// # Returns
+    ///
+    /// 新的加载器 / A new loader.
+    ///
+    /// <!-- @param paths 平台目录 / Platform directories. -->
+    /// <!-- @return 加载器 / Loader. -->
     pub fn new(paths: ConfigPaths) -> Self {
         Self { paths }
     }
 
-    /// @brief 按 defaults-user-explicit-env-CLI 顺序加载 / Loads in defaults-user-explicit-env-CLI order.
-    /// @param request 加载请求 / Load request.
-    /// @return 已验证配置或诊断集 / Validated configuration or diagnostics.
+    /// 按 defaults-user-explicit-env-CLI 顺序加载 / Loads in defaults-user-explicit-env-CLI order.
+    ///
+    /// <!-- @brief 按 defaults-user-explicit-env-CLI 顺序加载 / Loads in defaults-user-explicit-env-CLI order. -->
+    /// # Arguments
+    ///
+    /// - `request`: 加载请求 / Load request.
+    ///
+    /// # Returns
+    ///
+    /// 已验证的配置及其来源 / The validated configuration and its provenance.
+    ///
+    /// # Errors
+    ///
+    /// 文件不可读、配置不可解析或合并后的配置无效时返回全部诊断 / Returns all diagnostics
+    /// when a file cannot be read, configuration cannot be parsed, or the merged configuration is
+    /// invalid.
+    ///
+    /// <!-- @param request 加载请求 / Load request. -->
+    /// <!-- @return 已验证配置或诊断集 / Validated configuration or diagnostics. -->
     pub fn load(&self, request: LoadRequest) -> Result<LoadedConfig, Vec<ConfigDiagnostic>> {
         let mut layers = Vec::new();
         let mut diagnostics = Vec::new();
@@ -287,9 +427,24 @@ impl ConfigLoader {
         Ok(loaded)
     }
 
-    /// @brief 合并已类型化层，便于测试和嵌入 / Merges typed layers for tests and embedding.
-    /// @param layers 按低到高优先级排列的层 / Layers ordered from low to high precedence.
-    /// @return 已验证配置 / Validated configuration.
+    /// 合并已类型化层，便于测试和嵌入 / Merges typed layers for tests and embedding.
+    ///
+    /// <!-- @brief 合并已类型化层，便于测试和嵌入 / Merges typed layers for tests and embedding. -->
+    /// # Arguments
+    ///
+    /// - `layers`: 按低到高优先级排列的层 / Layers ordered from low to high precedence.
+    ///
+    /// # Returns
+    ///
+    /// 已验证的合并配置 / The validated merged configuration.
+    ///
+    /// # Errors
+    ///
+    /// 合并后的配置违反跨字段约束时返回全部诊断 / Returns all diagnostics when the merged
+    /// configuration violates cross-field constraints.
+    ///
+    /// <!-- @param layers 按低到高优先级排列的层 / Layers ordered from low to high precedence. -->
+    /// <!-- @return 已验证配置 / Validated configuration. -->
     pub fn merge(&self, layers: Vec<ConfigLayer>) -> Result<LoadedConfig, Vec<ConfigDiagnostic>> {
         let mut config = Config::defaults(&self.paths);
         let mut provenance = BTreeMap::new();

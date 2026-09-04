@@ -9,11 +9,26 @@ use std::time::Duration;
 use config::{DatabaseConfig, JournalMode};
 use sqlite::{SqliteJournalMode, SqliteOptions};
 
-/// @brief 将已验证数据库配置映射为 SQLite 适配器选项。 / Map validated database configuration to SQLite-adapter options.
+/// 将已验证数据库配置映射为 SQLite 适配器选项。 /
+/// Maps validated database configuration to SQLite-adapter options.
+///
+/// <!-- @brief 将已验证数据库配置映射为 SQLite 适配器选项。 / Map validated database configuration to SQLite-adapter options. -->
 impl From<&DatabaseConfig> for SqliteOptions {
-    /// @brief 执行无失败的强类型选项映射。 / Perform the infallible strongly typed option mapping.
-    /// @param config 已完成语义验证的数据库配置。 / Database configuration that has passed semantic validation.
-    /// @return 与配置表示解耦的 SQLite 打开选项。 / SQLite open options decoupled from the configuration representation.
+    /// 执行无失败的强类型选项映射。 / Performs the infallible strongly typed option mapping.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - 已完成语义验证的数据库配置。 /
+    ///   Database configuration that has passed semantic validation.
+    ///
+    /// # Returns
+    ///
+    /// 与配置表示解耦的 SQLite 打开选项。 /
+    /// SQLite open options decoupled from the configuration representation.
+    ///
+    /// <!-- @brief 执行无失败的强类型选项映射。 / Perform the infallible strongly typed option mapping. -->
+    /// <!-- @param config 已完成语义验证的数据库配置。 / Database configuration that has passed semantic validation. -->
+    /// <!-- @return 与配置表示解耦的 SQLite 打开选项。 / SQLite open options decoupled from the configuration representation. -->
     fn from(config: &DatabaseConfig) -> Self {
         Self {
             journal_mode: match config.journal_mode {

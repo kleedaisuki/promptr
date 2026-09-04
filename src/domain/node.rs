@@ -7,15 +7,31 @@ use serde::{Deserialize, Serialize};
 
 use super::{DomainError, Metadata};
 
-/// @brief 稳定的内部节点标识。 / Stable internal node identity.
+/// 稳定的内部节点标识。 / Stable internal node identity.
+///
+/// <!-- @brief 稳定的内部节点标识。 / Stable internal node identity. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "i64", into = "i64")]
 pub struct NodeId(NonZeroI64);
 
 impl NodeId {
-    /// @brief 从正 i64 构造标识。 / Construct an identity from a positive i64.
-    /// @param value 持久化整数。 / Persistent integer.
-    /// @return 节点标识或领域错误。 / Node identity or domain error.
+    /// 从正 i64 构造标识。 / Construct an identity from a positive i64.
+    ///
+    /// # Arguments
+    ///
+    /// - `value` — 持久化整数。 / Persistent integer.
+    ///
+    /// # Returns
+    /// 节点标识或领域错误。 / Node identity or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当 `value` 不是正整数时返回 [`DomainError::InvalidPositiveInteger`]。 /
+    /// Returns [`DomainError::InvalidPositiveInteger`] when `value` is not positive.
+    ///
+    /// <!-- @brief 从正 i64 构造标识。 / Construct an identity from a positive i64. -->
+    /// <!-- @param value 持久化整数。 / Persistent integer. -->
+    /// <!-- @return 节点标识或领域错误。 / Node identity or domain error. -->
     pub fn new(value: i64) -> Result<Self, DomainError> {
         NonZeroI64::new(value)
             .filter(|value| value.get() > 0)
@@ -26,8 +42,13 @@ impl NodeId {
             })
     }
 
-    /// @brief 返回持久化整数。 / Return the persistent integer.
-    /// @return 正 i64。 / Positive i64.
+    /// 返回持久化整数。 / Return the persistent integer.
+    ///
+    /// # Returns
+    /// 正 i64。 / Positive i64.
+    ///
+    /// <!-- @brief 返回持久化整数。 / Return the persistent integer. -->
+    /// <!-- @return 正 i64。 / Positive i64. -->
     pub const fn get(self) -> i64 {
         self.0.get()
     }
@@ -53,15 +74,31 @@ impl From<NodeId> for i64 {
     }
 }
 
-/// @brief 节点的乐观并发修订号。 / Optimistic-concurrency revision of a node.
+/// 节点的乐观并发修订号。 / Optimistic-concurrency revision of a node.
+///
+/// <!-- @brief 节点的乐观并发修订号。 / Optimistic-concurrency revision of a node. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "u64", into = "u64")]
 pub struct Revision(NonZeroU64);
 
 impl Revision {
-    /// @brief 构造正修订号。 / Construct a positive revision.
-    /// @param value 修订号。 / Revision number.
-    /// @return 修订号或领域错误。 / Revision or domain error.
+    /// 构造正修订号。 / Construct a positive revision.
+    ///
+    /// # Arguments
+    ///
+    /// - `value` — 修订号。 / Revision number.
+    ///
+    /// # Returns
+    /// 修订号或领域错误。 / Revision or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当 `value` 为零时返回 [`DomainError::InvalidPositiveInteger`]。 /
+    /// Returns [`DomainError::InvalidPositiveInteger`] when `value` is zero.
+    ///
+    /// <!-- @brief 构造正修订号。 / Construct a positive revision. -->
+    /// <!-- @param value 修订号。 / Revision number. -->
+    /// <!-- @return 修订号或领域错误。 / Revision or domain error. -->
     pub fn new(value: u64) -> Result<Self, DomainError> {
         NonZeroU64::new(value)
             .map(Self)
@@ -70,13 +107,23 @@ impl Revision {
                 value: 0,
             })
     }
-    /// @brief 返回修订号。 / Return the revision number.
-    /// @return 正 u64。 / Positive u64.
+    /// 返回修订号。 / Return the revision number.
+    ///
+    /// # Returns
+    /// 正 u64。 / Positive u64.
+    ///
+    /// <!-- @brief 返回修订号。 / Return the revision number. -->
+    /// <!-- @return 正 u64。 / Positive u64. -->
     pub const fn get(self) -> u64 {
         self.0.get()
     }
-    /// @brief 计算下一修订号。 / Compute the next revision.
-    /// @return 下一修订号，溢出时无值。 / Next revision, or none on overflow.
+    /// 计算下一修订号。 / Compute the next revision.
+    ///
+    /// # Returns
+    /// 下一修订号，溢出时无值。 / Next revision, or none on overflow.
+    ///
+    /// <!-- @brief 计算下一修订号。 / Compute the next revision. -->
+    /// <!-- @return 下一修订号，溢出时无值。 / Next revision, or none on overflow. -->
     pub fn checked_next(self) -> Option<Self> {
         self.get()
             .checked_add(1)
@@ -99,16 +146,35 @@ impl From<Revision> for u64 {
     }
 }
 
-/// @brief 同时合法于 DSL 与 XML 标签的符号。 / Symbol valid in both the DSL and XML tags.
+/// 同时合法于 DSL 与 XML 标签的符号。 / Symbol valid in both the DSL and XML tags.
+///
+/// <!-- @brief 同时合法于 DSL 与 XML 标签的符号。 / Symbol valid in both the DSL and XML tags. -->
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct Symbol(String);
 
 impl Symbol {
-    /// @brief 按手写 ASCII 规则校验并构造符号。 / Validate with the handwritten ASCII rule and construct a symbol.
-    /// @param value 候选符号。 / Candidate symbol.
-    /// @return 有效符号或领域错误。 / Valid symbol or domain error.
-    /// @note 规则等价于 `[A-Za-z_][A-Za-z0-9_-]*`。 / Rule is equivalent to `[A-Za-z_][A-Za-z0-9_-]*`.
+    /// 按手写 ASCII 规则校验并构造符号。 / Validate with the handwritten ASCII rule and construct a symbol.
+    ///
+    /// # Arguments
+    ///
+    /// - `value` — 候选符号。 / Candidate symbol.
+    ///
+    /// # Returns
+    /// 有效符号或领域错误。 / Valid symbol or domain error.
+    ///
+    /// # Notes
+    /// 规则等价于 `[A-Za-z_][A-Za-z0-9_-]*`。 / Rule is equivalent to `[A-Za-z_][A-Za-z0-9_-]*`.
+    ///
+    /// # Errors
+    ///
+    /// 当 `value` 不符合上述 ASCII 规则时返回 [`DomainError::InvalidSymbol`]。 /
+    /// Returns [`DomainError::InvalidSymbol`] when `value` violates the ASCII rule above.
+    ///
+    /// <!-- @brief 按手写 ASCII 规则校验并构造符号。 / Validate with the handwritten ASCII rule and construct a symbol. -->
+    /// <!-- @param value 候选符号。 / Candidate symbol. -->
+    /// <!-- @return 有效符号或领域错误。 / Valid symbol or domain error. -->
+    /// <!-- @note 规则等价于 `[A-Za-z_][A-Za-z0-9_-]*`。 / Rule is equivalent to `[A-Za-z_][A-Za-z0-9_-]*`. -->
     pub fn new(value: impl Into<String>) -> Result<Self, DomainError> {
         let value = value.into();
         let mut bytes = value.bytes();
@@ -122,13 +188,23 @@ impl Symbol {
         }
         Ok(Self(value))
     }
-    /// @brief 借用符号文本。 / Borrow symbol text.
-    /// @return 符号文本。 / Symbol text.
+    /// 借用符号文本。 / Borrow symbol text.
+    ///
+    /// # Returns
+    /// 符号文本。 / Symbol text.
+    ///
+    /// <!-- @brief 借用符号文本。 / Borrow symbol text. -->
+    /// <!-- @return 符号文本。 / Symbol text. -->
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    /// @brief 取出符号文本。 / Consume and return symbol text.
-    /// @return 符号文本。 / Symbol text.
+    /// 取出符号文本。 / Consume and return symbol text.
+    ///
+    /// # Returns
+    /// 符号文本。 / Symbol text.
+    ///
+    /// <!-- @brief 取出符号文本。 / Consume and return symbol text. -->
+    /// <!-- @return 符号文本。 / Symbol text. -->
     pub fn into_inner(self) -> String {
         self.0
     }
@@ -150,15 +226,31 @@ impl fmt::Display for Symbol {
     }
 }
 
-/// @brief 已验证的 XML 1.0 文本。 / Validated XML 1.0 text.
+/// 已验证的 XML 1.0 文本。 / Validated XML 1.0 text.
+///
+/// <!-- @brief 已验证的 XML 1.0 文本。 / Validated XML 1.0 text. -->
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct XmlText(String);
 
 impl XmlText {
-    /// @brief 验证并构造 XML 文本。 / Validate and construct XML text.
-    /// @param value UTF-8 文本。 / UTF-8 text.
-    /// @return 已验证文本或领域错误。 / Validated text or domain error.
+    /// 验证并构造 XML 文本。 / Validate and construct XML text.
+    ///
+    /// # Arguments
+    ///
+    /// - `value` — UTF-8 文本。 / UTF-8 text.
+    ///
+    /// # Returns
+    /// 已验证文本或领域错误。 / Validated text or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当文本包含 XML 1.0 禁止的字符时返回 [`DomainError::InvalidXmlCharacter`]。 /
+    /// Returns [`DomainError::InvalidXmlCharacter`] when the text contains a character forbidden by XML 1.0.
+    ///
+    /// <!-- @brief 验证并构造 XML 文本。 / Validate and construct XML text. -->
+    /// <!-- @param value UTF-8 文本。 / UTF-8 text. -->
+    /// <!-- @return 已验证文本或领域错误。 / Validated text or domain error. -->
     pub fn new(value: impl Into<String>) -> Result<Self, DomainError> {
         let value = value.into();
         if let Some((byte_offset, character)) = value
@@ -172,13 +264,23 @@ impl XmlText {
         }
         Ok(Self(value))
     }
-    /// @brief 借用文本。 / Borrow the text.
-    /// @return XML 文本。 / XML text.
+    /// 借用文本。 / Borrow the text.
+    ///
+    /// # Returns
+    /// XML 文本。 / XML text.
+    ///
+    /// <!-- @brief 借用文本。 / Borrow the text. -->
+    /// <!-- @return XML 文本。 / XML text. -->
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    /// @brief 取出文本。 / Consume and return text.
-    /// @return XML 文本。 / XML text.
+    /// 取出文本。 / Consume and return text.
+    ///
+    /// # Returns
+    /// XML 文本。 / XML text.
+    ///
+    /// <!-- @brief 取出文本。 / Consume and return text. -->
+    /// <!-- @return XML 文本。 / XML text. -->
     pub fn into_inner(self) -> String {
         self.0
     }
@@ -195,29 +297,62 @@ impl From<XmlText> for String {
     }
 }
 
-/// @brief 判断字符是否可出现在 XML 1.0 第五版文本中。 / Test whether a character is allowed by XML 1.0 Fifth Edition.
-/// @param character Unicode 标量值。 / Unicode scalar value.
-/// @return 若允许则为真。 / True when allowed.
+/// 判断字符是否可出现在 XML 1.0 第五版文本中。 / Test whether a character is allowed by XML 1.0 Fifth Edition.
+///
+/// # Arguments
+///
+/// - `character` — Unicode 标量值。 / Unicode scalar value.
+///
+/// # Returns
+/// 若允许则为真。 / True when allowed.
+///
+/// <!-- @brief 判断字符是否可出现在 XML 1.0 第五版文本中。 / Test whether a character is allowed by XML 1.0 Fifth Edition. -->
+/// <!-- @param character Unicode 标量值。 / Unicode scalar value. -->
+/// <!-- @return 若允许则为真。 / True when allowed. -->
 pub const fn is_xml_10_char(character: char) -> bool {
     matches!(character as u32, 0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
 }
 
-/// @brief 节点种类。 / Node kind.
+/// 节点种类。 / Node kind.
+///
+/// <!-- @brief 节点种类。 / Node kind. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum NodeKind {
+    /// 包含已验证 XML 文本的叶节点。 / Leaf node containing validated XML text.
+    ///
+    /// <!-- @brief 包含已验证 XML 文本的叶节点。 / Leaf node containing validated XML text. -->
     Fragment,
+    /// 按顺序引用一个或多个子节点的组合节点。 / Composite node referencing one or more ordered children.
+    ///
+    /// <!-- @brief 按顺序引用一个或多个子节点的组合节点。 / Composite node referencing one or more ordered children. -->
     Prompt,
 }
 
-/// @brief 至少包含一个条目的有序子节点列表。 / Ordered child list containing at least one entry.
+/// 至少包含一个条目的有序子节点列表。 / Ordered child list containing at least one entry.
+///
+/// <!-- @brief 至少包含一个条目的有序子节点列表。 / Ordered child list containing at least one entry. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "Vec<NodeId>", into = "Vec<NodeId>")]
 pub struct NonEmptyChildren(Vec<NodeId>);
 
 impl NonEmptyChildren {
-    /// @brief 构造非空子列表并保留重复项与顺序。 / Construct a non-empty child list preserving duplicates and order.
-    /// @param children 子节点标识。 / Child identities.
-    /// @return 非空列表或领域错误。 / Non-empty list or domain error.
+    /// 构造非空子列表并保留重复项与顺序。 / Construct a non-empty child list preserving duplicates and order.
+    ///
+    /// # Arguments
+    ///
+    /// - `children` — 子节点标识。 / Child identities.
+    ///
+    /// # Returns
+    /// 非空列表或领域错误。 / Non-empty list or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当 `children` 为空时返回 [`DomainError::EmptyChildren`]。 /
+    /// Returns [`DomainError::EmptyChildren`] when `children` is empty.
+    ///
+    /// <!-- @brief 构造非空子列表并保留重复项与顺序。 / Construct a non-empty child list preserving duplicates and order. -->
+    /// <!-- @param children 子节点标识。 / Child identities. -->
+    /// <!-- @return 非空列表或领域错误。 / Non-empty list or domain error. -->
     pub fn new(children: Vec<NodeId>) -> Result<Self, DomainError> {
         if children.is_empty() {
             Err(DomainError::EmptyChildren)
@@ -225,13 +360,23 @@ impl NonEmptyChildren {
             Ok(Self(children))
         }
     }
-    /// @brief 借用子节点切片。 / Borrow the child slice.
-    /// @return 有序且可重复的子节点。 / Ordered, duplicate-preserving children.
+    /// 借用子节点切片。 / Borrow the child slice.
+    ///
+    /// # Returns
+    /// 有序且可重复的子节点。 / Ordered, duplicate-preserving children.
+    ///
+    /// <!-- @brief 借用子节点切片。 / Borrow the child slice. -->
+    /// <!-- @return 有序且可重复的子节点。 / Ordered, duplicate-preserving children. -->
     pub fn as_slice(&self) -> &[NodeId] {
         &self.0
     }
-    /// @brief 取出子节点向量。 / Consume and return the child vector.
-    /// @return 子节点向量。 / Child vector.
+    /// 取出子节点向量。 / Consume and return the child vector.
+    ///
+    /// # Returns
+    /// 子节点向量。 / Child vector.
+    ///
+    /// <!-- @brief 取出子节点向量。 / Consume and return the child vector. -->
+    /// <!-- @return 子节点向量。 / Child vector. -->
     pub fn into_vec(self) -> Vec<NodeId> {
         self.0
     }
@@ -248,15 +393,38 @@ impl From<NonEmptyChildren> for Vec<NodeId> {
     }
 }
 
-/// @brief 节点负载。 / Node payload.
+/// 节点负载。 / Node payload.
+///
+/// <!-- @brief 节点负载。 / Node payload. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NodeBody {
-    Fragment(XmlText),
-    Prompt(NonEmptyChildren),
+    /// 叶节点负载。 / Leaf-node payload.
+    ///
+    /// <!-- @brief 叶节点负载。 / Leaf-node payload. -->
+    Fragment(
+        /// 将被 XML 转义后输出的已验证文本。 / Validated text to emit with XML escaping.
+        ///
+        /// <!-- @brief 将被 XML 转义后输出的已验证文本。 / Validated text to emit with XML escaping. -->
+        XmlText,
+    ),
+    /// 组合节点负载。 / Composite-node payload.
+    ///
+    /// <!-- @brief 组合节点负载。 / Composite-node payload. -->
+    Prompt(
+        /// 有序且非空的子节点标识。 / Ordered, non-empty child identities.
+        ///
+        /// <!-- @brief 有序且非空的子节点标识。 / Ordered, non-empty child identities. -->
+        NonEmptyChildren,
+    ),
 }
 impl NodeBody {
-    /// @brief 返回负载种类。 / Return the payload kind.
-    /// @return 节点种类。 / Node kind.
+    /// 返回负载种类。 / Return the payload kind.
+    ///
+    /// # Returns
+    /// 节点种类。 / Node kind.
+    ///
+    /// <!-- @brief 返回负载种类。 / Return the payload kind. -->
+    /// <!-- @return 节点种类。 / Node kind. -->
     pub const fn kind(&self) -> NodeKind {
         match self {
             Self::Fragment(_) => NodeKind::Fragment,
@@ -265,32 +433,69 @@ impl NodeBody {
     }
 }
 
-/// @brief 节点身份、运维版本与元数据。 / Node identity, operational version, and metadata.
+/// 节点身份、运维版本与元数据。 / Node identity, operational version, and metadata.
+///
+/// <!-- @brief 节点身份、运维版本与元数据。 / Node identity, operational version, and metadata. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeHeader {
+    /// 稳定的内部节点标识。 / Stable internal node identity.
+    ///
+    /// <!-- @brief 稳定的内部节点标识。 / Stable internal node identity. -->
     pub id: NodeId,
+    /// 用户可见且全局唯一的符号。 / User-visible, globally unique symbol.
+    ///
+    /// <!-- @brief 用户可见且全局唯一的符号。 / User-visible, globally unique symbol. -->
     pub symbol: Symbol,
+    /// 节点头声明的负载种类。 / Payload kind declared by the header.
+    ///
+    /// <!-- @brief 节点头声明的负载种类。 / Payload kind declared by the header. -->
     pub kind: NodeKind,
+    /// 用于乐观并发控制的修订号。 / Revision used for optimistic concurrency control.
+    ///
+    /// <!-- @brief 用于乐观并发控制的修订号。 / Revision used for optimistic concurrency control. -->
     pub revision: Revision,
+    /// 用户拥有的节点元数据。 / User-owned node metadata.
+    ///
+    /// <!-- @brief 用户拥有的节点元数据。 / User-owned node metadata. -->
     pub metadata: Metadata,
+    /// 创建时刻的 Unix 毫秒时间戳。 / Creation time as a Unix timestamp in milliseconds.
+    ///
+    /// <!-- @brief 创建时刻的 Unix 毫秒时间戳。 / Creation time as a Unix timestamp in milliseconds. -->
     pub created_at_ms: i64,
+    /// 最近更新时间的 Unix 毫秒时间戳。 / Last update time as a Unix timestamp in milliseconds.
+    ///
+    /// <!-- @brief 最近更新时间的 Unix 毫秒时间戳。 / Last update time as a Unix timestamp in milliseconds. -->
     pub updated_at_ms: i64,
 }
 
-/// @brief 完整领域节点。 / Complete domain node.
+/// 完整领域节点。 / Complete domain node.
+///
+/// <!-- @brief 完整领域节点。 / Complete domain node. -->
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "NodeDto", into = "NodeDto")]
 pub struct Node {
+    /// 节点的身份、种类、版本及元数据。 / Node identity, kind, version, and metadata.
+    ///
+    /// <!-- @brief 节点的身份、种类、版本及元数据。 / Node identity, kind, version, and metadata. -->
     pub header: NodeHeader,
+    /// 与头部声明种类一致的节点负载。 / Node payload consistent with the header's declared kind.
+    ///
+    /// <!-- @brief 与头部声明种类一致的节点负载。 / Node payload consistent with the header's declared kind. -->
     pub body: NodeBody,
 }
 
-/// @brief 仅用于经过校验的节点序列化。 / Serialization DTO used only for validated node conversion.
+/// 仅用于经过校验的节点序列化。 / Serialization DTO used only for validated node conversion.
+///
+/// <!-- @brief 仅用于经过校验的节点序列化。 / Serialization DTO used only for validated node conversion. -->
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NodeDto {
-    /// @brief 持久化节点头。 / Persisted node header.
+    /// 持久化节点头。 / Persisted node header.
+    ///
+    /// <!-- @brief 持久化节点头。 / Persisted node header. -->
     header: NodeHeader,
-    /// @brief 持久化节点体。 / Persisted node body.
+    /// 持久化节点体。 / Persisted node body.
+    ///
+    /// <!-- @brief 持久化节点体。 / Persisted node body. -->
     body: NodeBody,
 }
 
@@ -312,10 +517,25 @@ impl From<Node> for NodeDto {
 }
 
 impl Node {
-    /// @brief 从持久化部件恢复节点并校验类型一致性。 / Rehydrate a node and validate kind consistency.
-    /// @param header 节点头。 / Node header.
-    /// @param body 节点负载。 / Node payload.
-    /// @return 完整节点或领域错误。 / Complete node or domain error.
+    /// 从持久化部件恢复节点并校验类型一致性。 / Rehydrate a node and validate kind consistency.
+    ///
+    /// # Arguments
+    ///
+    /// - `header` — 节点头。 / Node header.
+    /// - `body` — 节点负载。 / Node payload.
+    ///
+    /// # Returns
+    /// 完整节点或领域错误。 / Complete node or domain error.
+    ///
+    /// # Errors
+    ///
+    /// 当 `header.kind` 与 `body` 的实际种类不一致时返回 [`DomainError::KindMismatch`]。 /
+    /// Returns [`DomainError::KindMismatch`] when `header.kind` disagrees with the actual `body` kind.
+    ///
+    /// <!-- @brief 从持久化部件恢复节点并校验类型一致性。 / Rehydrate a node and validate kind consistency. -->
+    /// <!-- @param header 节点头。 / Node header. -->
+    /// <!-- @param body 节点负载。 / Node payload. -->
+    /// <!-- @return 完整节点或领域错误。 / Complete node or domain error. -->
     pub fn from_parts(header: NodeHeader, body: NodeBody) -> Result<Self, DomainError> {
         let actual = body.kind();
         if header.kind != actual {

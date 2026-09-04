@@ -7,38 +7,83 @@ use serde::Serialize;
 
 use crate::{Diagnostic, Value};
 
-/// @brief 命令行输出格式。 / Command-line output format.
+/// 命令行输出格式。 / Command-line output format.
+///
+/// <!-- @brief 命令行输出格式。 / Command-line output format. -->
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum OutputFormat {
-    /// @brief 面向人的稳定文本。 / Stable human-oriented text.
+    /// 面向人的稳定文本。 / Stable human-oriented text.
+    ///
+    /// <!-- @brief 面向人的稳定文本。 / Stable human-oriented text. -->
     #[default]
     Human,
-    /// @brief 单个版本化 JSON 文档。 / One versioned JSON document.
+    /// 单个版本化 JSON 文档。 / One versioned JSON document.
+    ///
+    /// <!-- @brief 单个版本化 JSON 文档。 / One versioned JSON document. -->
     Json,
-    /// @brief 仅规范 XML 字节。 / Canonical XML bytes only.
+    /// 仅规范 XML 字节。 / Canonical XML bytes only.
+    ///
+    /// <!-- @brief 仅规范 XML 字节。 / Canonical XML bytes only. -->
     Raw,
 }
 
-/// @brief JSON 机器接口的顶层文档。 / Top-level JSON machine-interface document.
+/// JSON 机器接口的顶层文档。 / Top-level JSON machine-interface document.
+///
+/// <!-- @brief JSON 机器接口的顶层文档。 / Top-level JSON machine-interface document. -->
 #[derive(Debug, Serialize)]
 struct JsonDocument<'a, T: Serialize + ?Sized> {
-    /// @brief 接口模式版本。 / Interface schema version.
+    /// 接口模式版本。 / Interface schema version.
+    ///
+    /// <!-- @brief 接口模式版本。 / Interface schema version. -->
     schema_version: u32,
-    /// @brief 操作是否成功。 / Whether the operation succeeded.
+    /// 操作是否成功。 / Whether the operation succeeded.
+    ///
+    /// <!-- @brief 操作是否成功。 / Whether the operation succeeded. -->
     ok: bool,
-    /// @brief 成功负载。 / Success payload.
+    /// 成功负载。 / Success payload.
+    ///
+    /// <!-- @brief 成功负载。 / Success payload. -->
     #[serde(skip_serializing_if = "Option::is_none")]
     values: Option<&'a T>,
-    /// @brief 失败诊断。 / Failure diagnostics.
+    /// 失败诊断。 / Failure diagnostics.
+    ///
+    /// <!-- @brief 失败诊断。 / Failure diagnostics. -->
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<&'a [Diagnostic]>,
 }
 
-/// @brief 将类型化运行时值写入指定输出流。 / Write typed runtime values to a selected output stream.
-/// @param writer 标准输出等目标。 / Destination such as standard output.
-/// @param format 输出格式。 / Output format.
-/// @param values 已提交的类型化值。 / Committed typed values.
-/// @return 写入成功或 I/O 错误。 / Success or an I/O error.
+/// 将类型化运行时值写入指定输出流。 / Write typed runtime values to a selected output stream.
+///
+/// # Arguments
+///
+/// - `writer`: 标准输出等目标。 / Destination such as standard output.
+/// - `format`: 输出格式。 / Output format.
+/// - `values`: 已提交的类型化值。 / Committed typed values.
+///
+/// # Returns
+///
+/// 写入成功或 I/O 错误。 / Success or an I/O error.
+/// 将成功负载编码为版本化 JSON 文档。 / Encode a success payload as a versioned JSON document.
+///
+/// # Arguments
+///
+/// - `writer`: 输出目标。 / Output destination.
+/// - `value`: 成功负载。 / Success payload.
+///
+/// # Returns
+///
+/// 写入成功时返回空值。 / Returns the unit value after successful writing.
+///
+/// # Errors
+///
+/// 当目标流写入失败，或原始格式（raw format）收到非 XML 值时返回错误。 / Returns an
+/// error when the destination cannot be written or raw format receives a non-XML value.
+///
+/// <!-- @brief 将类型化运行时值写入指定输出流。 / Write typed runtime values to a selected output stream. -->
+/// <!-- @param writer 标准输出等目标。 / Destination such as standard output. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param values 已提交的类型化值。 / Committed typed values. -->
+/// <!-- @return 写入成功或 I/O 错误。 / Success or an I/O error. -->
 pub fn write_values(
     writer: &mut dyn Write,
     format: OutputFormat,
@@ -51,10 +96,26 @@ pub fn write_values(
     }
 }
 
-/// @brief 流式写入值数组的成功 JSON 文档。 / Stream a successful JSON document containing values.
-/// @param writer 输出目标。 / Output destination.
-/// @param values 类型化值。 / Typed values.
-/// @return 写入成功或 I/O 错误。 / Success or an I/O error.
+/// 流式写入值数组的成功 JSON 文档。 / Stream a successful JSON document containing values.
+///
+/// # Arguments
+///
+/// - `writer`: 输出目标。 / Output destination.
+/// - `values`: 类型化值。 / Typed values.
+///
+/// # Returns
+///
+/// 写入成功或 I/O 错误。 / Success or an I/O error.
+///
+/// # Errors
+///
+/// 当目标流写入失败，或非 XML 值无法序列化为 JSON 时返回错误。 / Returns an error when
+/// the destination cannot be written or a non-XML value cannot be serialized as JSON.
+///
+/// <!-- @brief 流式写入值数组的成功 JSON 文档。 / Stream a successful JSON document containing values. -->
+/// <!-- @param writer 输出目标。 / Output destination. -->
+/// <!-- @param values 类型化值。 / Typed values. -->
+/// <!-- @return 写入成功或 I/O 错误。 / Success or an I/O error. -->
 fn write_json_values(writer: &mut dyn Write, values: &[Value]) -> io::Result<()> {
     writer.write_all(br#"{"schema_version":1,"ok":true,"values":["#)?;
     for (index, value) in values.iter().enumerate() {
@@ -73,23 +134,60 @@ fn write_json_values(writer: &mut dyn Write, values: &[Value]) -> io::Result<()>
     writer.write_all(b"]}\n")
 }
 
-/// @brief 把 UTF-8 字节流转义为 JSON 字符串内容。 / Escape a UTF-8 byte stream as JSON string content.
-/// @note 非 ASCII 字节保持原样；JSON 特殊字符与控制字节立即转义，不缓存完整值。 / Non-ASCII bytes are preserved; JSON specials and control bytes are escaped immediately without buffering the complete value.
+/// 把 UTF-8 字节流转义为 JSON 字符串内容。 / Escape a UTF-8 byte stream as JSON string content.
+///
+/// # Notes
+///
+/// 非 ASCII 字节保持原样；JSON 特殊字符与控制字节立即转义，不缓存完整值。 / Non-ASCII bytes are preserved; JSON specials and control bytes are escaped immediately without buffering the complete value.
+///
+/// <!-- @brief 把 UTF-8 字节流转义为 JSON 字符串内容。 / Escape a UTF-8 byte stream as JSON string content. -->
+/// <!-- @note 非 ASCII 字节保持原样；JSON 特殊字符与控制字节立即转义，不缓存完整值。 / Non-ASCII bytes are preserved; JSON specials and control bytes are escaped immediately without buffering the complete value. -->
 struct JsonStringWriter<'a> {
-    /// @brief 下游输出流。 / Downstream output stream.
+    /// 下游输出流。 / Downstream output stream.
+    ///
+    /// <!-- @brief 下游输出流。 / Downstream output stream. -->
     inner: &'a mut dyn Write,
 }
 
 impl<'a> JsonStringWriter<'a> {
-    /// @brief 创建 JSON 字符串转义写入器。 / Create a JSON-string escaping writer.
-    /// @param inner 下游输出流。 / Downstream output stream.
-    /// @return 新写入器。 / New writer.
+    /// 创建 JSON 字符串转义写入器。 / Create a JSON-string escaping writer.
+    ///
+    /// # Arguments
+    ///
+    /// - `inner`: 下游输出流。 / Downstream output stream.
+    ///
+    /// # Returns
+    ///
+    /// 新写入器。 / New writer.
+    ///
+    /// <!-- @brief 创建 JSON 字符串转义写入器。 / Create a JSON-string escaping writer. -->
+    /// <!-- @param inner 下游输出流。 / Downstream output stream. -->
+    /// <!-- @return 新写入器。 / New writer. -->
     const fn new(inner: &'a mut dyn Write) -> Self {
         Self { inner }
     }
 }
 
 impl Write for JsonStringWriter<'_> {
+    /// 转义并转发一个字节切片。 / Escape and forward one byte slice.
+    ///
+    /// # Arguments
+    ///
+    /// - `input`: 作为 JSON 字符串内容写入的 UTF-8 字节。 / UTF-8 bytes written as JSON
+    ///   string content.
+    ///
+    /// # Returns
+    ///
+    /// 成功时返回已消费的输入字节数。 / Returns the consumed input byte count on success.
+    ///
+    /// # Errors
+    ///
+    /// 当下游输出流写入失败时返回错误。 / Returns an error when the downstream stream cannot
+    /// be written.
+    ///
+    /// <!-- @brief 转义并转发一个字节切片。 / Escape and forward one byte slice. -->
+    /// <!-- @param input 作为 JSON 字符串内容写入的 UTF-8 字节。 / UTF-8 bytes written as JSON string content. -->
+    /// <!-- @return 成功时返回已消费的输入字节数。 / Returns the consumed input byte count on success. -->
     fn write(&mut self, input: &[u8]) -> io::Result<usize> {
         let mut start = 0;
         for (index, byte) in input.iter().copied().enumerate() {
@@ -127,16 +225,47 @@ impl Write for JsonStringWriter<'_> {
         Ok(input.len())
     }
 
+    /// 刷新下游输出流。 / Flush the downstream output stream.
+    ///
+    /// # Returns
+    ///
+    /// 刷新成功时返回空值。 / Returns the unit value after a successful flush.
+    ///
+    /// # Errors
+    ///
+    /// 当下游输出流刷新失败时返回错误。 / Returns an error when the downstream stream cannot
+    /// be flushed.
+    ///
+    /// <!-- @brief 刷新下游输出流。 / Flush the downstream output stream. -->
+    /// <!-- @return 刷新成功时返回空值。 / Returns the unit value after a successful flush. -->
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
 }
 
-/// @brief 写入任意可序列化的管理命令结果。 / Write any serializable management-command result.
-/// @param writer 输出目标。 / Output destination.
-/// @param format 输出格式。 / Output format.
-/// @param value 成功负载。 / Success payload.
-/// @return 写入成功或 I/O 错误。 / Success or an I/O error.
+/// 写入任意可序列化的管理命令结果。 / Write any serializable management-command result.
+///
+/// # Arguments
+///
+/// - `writer`: 输出目标。 / Output destination.
+/// - `format`: 输出格式。 / Output format.
+/// - `value`: 成功负载。 / Success payload.
+///
+/// # Returns
+///
+/// 写入成功或 I/O 错误。 / Success or an I/O error.
+///
+/// # Errors
+///
+/// 当目标流写入或 JSON 序列化失败，或请求将管理结果编码为原始格式时返回错误。 /
+/// Returns an error when writing or JSON serialization fails, or when raw format is requested for
+/// a management result.
+///
+/// <!-- @brief 写入任意可序列化的管理命令结果。 / Write any serializable management-command result. -->
+/// <!-- @param writer 输出目标。 / Output destination. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param value 成功负载。 / Success payload. -->
+/// <!-- @return 写入成功或 I/O 错误。 / Success or an I/O error. -->
 pub fn write_data<T: Serialize + std::fmt::Debug>(
     writer: &mut dyn Write,
     format: OutputFormat,
@@ -152,12 +281,30 @@ pub fn write_data<T: Serialize + std::fmt::Debug>(
     }
 }
 
-/// @brief 发布一个结构化失败。 / Publish one structured failure.
-/// @param stdout 标准输出。 / Standard output.
-/// @param stderr 标准错误。 / Standard error.
-/// @param format 输出格式。 / Output format.
-/// @param diagnostic 诊断。 / Diagnostic.
-/// @return 写入成功或 I/O 错误。 / Success or an I/O error.
+/// 发布一个结构化失败。 / Publish one structured failure.
+///
+/// # Arguments
+///
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+/// - `format`: 输出格式。 / Output format.
+/// - `diagnostic`: 诊断。 / Diagnostic.
+///
+/// # Returns
+///
+/// 写入成功或 I/O 错误。 / Success or an I/O error.
+///
+/// # Errors
+///
+/// 当所选输出流写入失败或 JSON 诊断无法序列化时返回错误。 / Returns an error when the
+/// selected output stream cannot be written or the JSON diagnostic cannot be serialized.
+///
+/// <!-- @brief 发布一个结构化失败。 / Publish one structured failure. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param diagnostic 诊断。 / Diagnostic. -->
+/// <!-- @return 写入成功或 I/O 错误。 / Success or an I/O error. -->
 pub fn write_diagnostic(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -185,6 +332,16 @@ pub fn write_diagnostic(
     }
 }
 
+///
+/// # Errors
+///
+/// 当 JSON 序列化或目标流写入失败时返回错误。 / Returns an error when JSON serialization or
+/// destination writing fails.
+///
+/// <!-- @brief 将成功负载编码为版本化 JSON 文档。 / Encode a success payload as a versioned JSON document. -->
+/// <!-- @param writer 输出目标。 / Output destination. -->
+/// <!-- @param value 成功负载。 / Success payload. -->
+/// <!-- @return 写入成功时返回空值。 / Returns the unit value after successful writing. -->
 fn write_json_success<T: Serialize + ?Sized>(writer: &mut dyn Write, value: &T) -> io::Result<()> {
     serde_json::to_writer(
         &mut *writer,
@@ -198,6 +355,26 @@ fn write_json_success<T: Serialize + ?Sized>(writer: &mut dyn Write, value: &T) 
     writeln!(writer)
 }
 
+/// 写入仅包含 XML 的原始结果流。 / Write a raw result stream containing only XML.
+///
+/// # Arguments
+///
+/// - `writer`: 输出目标。 / Output destination.
+/// - `values`: 待写入的类型化值。 / Typed values to write.
+///
+/// # Returns
+///
+/// 写入成功时返回空值。 / Returns the unit value after successful writing.
+///
+/// # Errors
+///
+/// 当目标流写入失败，或值序列包含非 XML 值时返回错误。 / Returns an error when the
+/// destination cannot be written or the values contain a non-XML value.
+///
+/// <!-- @brief 写入仅包含 XML 的原始结果流。 / Write a raw result stream containing only XML. -->
+/// <!-- @param writer 输出目标。 / Output destination. -->
+/// <!-- @param values 待写入的类型化值。 / Typed values to write. -->
+/// <!-- @return 写入成功时返回空值。 / Returns the unit value after successful writing. -->
 fn write_raw(writer: &mut dyn Write, values: &[Value]) -> io::Result<()> {
     if values.iter().any(|value| !matches!(value, Value::Xml(_))) {
         return Err(io::Error::new(
@@ -214,6 +391,26 @@ fn write_raw(writer: &mut dyn Write, values: &[Value]) -> io::Result<()> {
     Ok(())
 }
 
+/// 将类型化值写为面向人的文本。 / Write typed values as human-oriented text.
+///
+/// # Arguments
+///
+/// - `writer`: 输出目标。 / Output destination.
+/// - `values`: 待呈现的类型化值。 / Typed values to present.
+///
+/// # Returns
+///
+/// 写入成功时返回空值。 / Returns the unit value after successful writing.
+///
+/// # Errors
+///
+/// 当目标流写入失败或暂存的 XML 无法读取时返回错误。 / Returns an error when the destination
+/// cannot be written or spooled XML cannot be read.
+///
+/// <!-- @brief 将类型化值写为面向人的文本。 / Write typed values as human-oriented text. -->
+/// <!-- @param writer 输出目标。 / Output destination. -->
+/// <!-- @param values 待呈现的类型化值。 / Typed values to present. -->
+/// <!-- @return 写入成功时返回空值。 / Returns the unit value after successful writing. -->
 fn write_human(writer: &mut dyn Write, values: &[Value]) -> io::Result<()> {
     for value in values {
         match value {
@@ -234,20 +431,34 @@ mod tests {
     use super::*;
     use crate::application::SpillWriter;
 
-    /// @brief 与生产 XML 内存阈值一致的测试规模。 / Test size matching the production XML memory threshold.
+    /// 与生产 XML 内存阈值一致的测试规模。 / Test size matching the production XML memory threshold.
+    ///
+    /// <!-- @brief 与生产 XML 内存阈值一致的测试规模。 / Test size matching the production XML memory threshold. -->
     const XML_MEMORY_LIMIT: usize = 16 * 1024 * 1024;
 
-    /// @brief 以常量内存统计并散列输出。 / Count and hash output with constant memory.
+    /// 以常量内存统计并散列输出。 / Count and hash output with constant memory.
+    ///
+    /// <!-- @brief 以常量内存统计并散列输出。 / Count and hash output with constant memory. -->
     struct CountingHashWriter {
-        /// @brief 已写字节数。 / Number of bytes written.
+        /// 已写字节数。 / Number of bytes written.
+        ///
+        /// <!-- @brief 已写字节数。 / Number of bytes written. -->
         count: usize,
-        /// @brief FNV-1a 流式散列状态。 / Streaming FNV-1a hash state.
+        /// FNV-1a 流式散列状态。 / Streaming FNV-1a hash state.
+        ///
+        /// <!-- @brief FNV-1a 流式散列状态。 / Streaming FNV-1a hash state. -->
         hash: u64,
     }
 
     impl CountingHashWriter {
-        /// @brief 创建具有标准偏移基的写入器。 / Create a writer with the standard offset basis.
-        /// @return 空统计器。 / Empty counter.
+        /// 创建具有标准偏移基的写入器。 / Create a writer with the standard offset basis.
+        ///
+        /// # Returns
+        ///
+        /// 空统计器。 / Empty counter.
+        ///
+        /// <!-- @brief 创建具有标准偏移基的写入器。 / Create a writer with the standard offset basis. -->
+        /// <!-- @return 空统计器。 / Empty counter. -->
         const fn new() -> Self {
             Self {
                 count: 0,

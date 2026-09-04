@@ -13,12 +13,25 @@ use super::{
     model::{Mode, Model, Pane, PreviewPayload, PreviewTab},
 };
 
-/// @brief 将模型渲染到给定 Buffer 并返回同源命中区域。 / Render a model into a Buffer and return co-generated hit regions.
-/// @param model 只读 UI 模型。 / Read-only UI model.
-/// @param buffer Ratatui 目标缓冲区。 / Ratatui destination buffer.
-/// @param theme 完整语义主题。 / Complete semantic theme.
-/// @param glyph_mode Unicode 或 ASCII 能力。 / Unicode or ASCII capability.
-/// @return 与此次渲染几何严格一致的命中区域。 / Hit regions exactly matching this render geometry.
+/// 将模型渲染到给定 Buffer 并返回同源命中区域。 / Render a model into a Buffer and return co-generated hit regions.
+///
+/// # Arguments / 参数
+///
+/// - `model` — 只读 UI 模型。 / Read-only UI model.
+/// - `buffer` — Ratatui 目标缓冲区。 / Ratatui destination buffer.
+/// - `theme` — 完整语义主题。 / Complete semantic theme.
+/// - `glyph_mode` — Unicode 或 ASCII 能力。 / Unicode or ASCII capability.
+///
+/// # Returns / 返回值
+///
+/// 与此次渲染几何严格一致的命中区域。 / Hit regions exactly matching this render geometry.
+///
+/// <!-- @brief 将模型渲染到给定 Buffer 并返回同源命中区域。 / Render a model into a Buffer and return co-generated hit regions. -->
+/// <!-- @param model 只读 UI 模型。 / Read-only UI model. -->
+/// <!-- @param buffer Ratatui 目标缓冲区。 / Ratatui destination buffer. -->
+/// <!-- @param theme 完整语义主题。 / Complete semantic theme. -->
+/// <!-- @param glyph_mode Unicode 或 ASCII 能力。 / Unicode or ASCII capability. -->
+/// <!-- @return 与此次渲染几何严格一致的命中区域。 / Hit regions exactly matching this render geometry. -->
 pub fn render(
     model: &Model,
     buffer: &mut Buffer,

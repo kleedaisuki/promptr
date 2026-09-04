@@ -10,6 +10,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
+  RUSTDOCFLAGS: "-D warnings"
 
 jobs:
   quality:
@@ -47,3 +48,6 @@ jobs:
 
       - name: Test documentation examples
         run: cargo test --doc --all-features
+
+      - name: Build API documentation
+        run: cargo doc --no-deps --all-features

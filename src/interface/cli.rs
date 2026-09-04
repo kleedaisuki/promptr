@@ -30,24 +30,33 @@ use super::{
     repl, tui,
 };
 
-/// @brief Promptr 命令行参数。 / Promptr command-line arguments.
+/// Promptr 命令行参数。 / Promptr command-line arguments.
+///
+/// <!-- @brief Promptr 命令行参数。 / Promptr command-line arguments. -->
 #[derive(Debug, Parser)]
 #[command(
     version,
     about = "Manage, compose, search, and render prompt catalogs",
+    long_about = None,
     arg_required_else_help = false
 )]
 pub struct Cli {
-    /// @brief 覆盖数据库路径。 / Override the database path.
+    /// 覆盖数据库路径。 / Override the database path.
+    ///
+    /// <!-- @brief 覆盖数据库路径。 / Override the database path. -->
     #[arg(
+        long_help = None,
         long,
         global = true,
         env = "PROMPTR_DATABASE",
         help = "Override the database path"
     )]
     pub database: Option<PathBuf>,
-    /// @brief 叠加显式配置文件。 / Overlay an explicit configuration file.
+    /// 叠加显式配置文件。 / Overlay an explicit configuration file.
+    ///
+    /// <!-- @brief 叠加显式配置文件。 / Overlay an explicit configuration file. -->
     #[arg(
+        long_help = None,
         long,
         global = true,
         env = "PROMPTR_CONFIG",
@@ -55,11 +64,16 @@ pub struct Cli {
         help = "Overlay an explicit configuration file"
     )]
     pub config: Option<PathBuf>,
-    /// @brief 禁用所有配置文件层。 / Disable every configuration-file layer.
-    #[arg(long, global = true, help = "Disable every configuration-file layer")]
+    /// 禁用所有配置文件层。 / Disable every configuration-file layer.
+    ///
+    /// <!-- @brief 禁用所有配置文件层。 / Disable every configuration-file layer. -->
+    #[arg(long_help = None, long, global = true, help = "Disable every configuration-file layer")]
     pub no_config: bool,
-    /// @brief 选择输出契约。 / Select the output contract.
+    /// 选择输出契约。 / Select the output contract.
+    ///
+    /// <!-- @brief 选择输出契约。 / Select the output contract. -->
     #[arg(
+        long_help = None,
         long,
         global = true,
         value_enum,
@@ -68,20 +82,31 @@ pub struct Cli {
         help = "Select the output contract"
     )]
     pub format: OutputFormat,
-    /// @brief 覆盖终端颜色策略。 / Override the terminal color policy.
-    #[arg(long, global = true, value_enum, help = "Override terminal colors")]
+    /// 覆盖终端颜色策略。 / Override the terminal color policy.
+    ///
+    /// <!-- @brief 覆盖终端颜色策略。 / Override the terminal color policy. -->
+    #[arg(long_help = None, long, global = true, value_enum, help = "Override terminal colors")]
     pub color: Option<CliColor>,
-    /// @brief 覆盖终端字形策略。 / Override the terminal glyph policy.
-    #[arg(long, global = true, value_enum, help = "Override terminal glyphs")]
+    /// 覆盖终端字形策略。 / Override the terminal glyph policy.
+    ///
+    /// <!-- @brief 覆盖终端字形策略。 / Override the terminal glyph policy. -->
+    #[arg(long_help = None, long, global = true, value_enum, help = "Override terminal glyphs")]
     pub glyphs: Option<CliGlyphs>,
-    /// @brief 覆盖 TUI 主题。 / Override the TUI theme.
-    #[arg(long, global = true, help = "Override the TUI theme")]
+    /// 覆盖 TUI 主题。 / Override the TUI theme.
+    ///
+    /// <!-- @brief 覆盖 TUI 主题。 / Override the TUI theme. -->
+    #[arg(long_help = None, long, global = true, help = "Override the TUI theme")]
     pub theme: Option<String>,
-    /// @brief 覆盖默认预览投影。 / Override the default preview projection.
-    #[arg(long, global = true, value_enum, help = "Override the default preview")]
+    /// 覆盖默认预览投影。 / Override the default preview projection.
+    ///
+    /// <!-- @brief 覆盖默认预览投影。 / Override the default preview projection. -->
+    #[arg(long_help = None, long, global = true, value_enum, help = "Override the default preview")]
     pub preview: Option<CliPreview>,
-    /// @brief 显式启用或禁用鼠标。 / Explicitly enable or disable mouse input.
+    /// 显式启用或禁用鼠标。 / Explicitly enable or disable mouse input.
+    ///
+    /// <!-- @brief 显式启用或禁用鼠标。 / Explicitly enable or disable mouse input. -->
     #[arg(
+        long_help = None,
         long,
         global = true,
         action = clap::ArgAction::Set,
@@ -90,66 +115,108 @@ pub struct Cli {
         help = "Explicitly enable or disable mouse input"
     )]
     pub mouse: Option<bool>,
-    /// @brief 可选操作；缺省进入交互宿主。 / Optional operation; absent enters an interactive host.
+    /// 可选操作；缺省进入交互宿主。 / Optional operation; absent enters an interactive host.
+    ///
+    /// <!-- @brief 可选操作；缺省进入交互宿主。 / Optional operation; absent enters an interactive host. -->
     #[command(subcommand)]
     pub command: Option<Command>,
 }
 
-/// @brief CLI 专用颜色字面量。 / CLI-local color literals.
+/// CLI 专用颜色字面量。 / CLI-local color literals.
+///
+/// <!-- @brief CLI 专用颜色字面量。 / CLI-local color literals. -->
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum CliColor {
-    /// @brief 自动探测。 / Detect automatically.
+    /// 自动探测。 / Detect automatically.
+    ///
+    /// <!-- @brief 自动探测。 / Detect automatically. -->
     #[value(help = "Detect color capability automatically")]
     Auto,
-    /// @brief 真彩色。 / True color.
+    /// 真彩色。 / True color.
+    ///
+    /// <!-- @brief 真彩色。 / True color. -->
     #[value(help = "Use 24-bit true color")]
     Truecolor,
-    /// @brief 256 色 ANSI。 / 256-color ANSI.
+    /// 256 色 ANSI。 / 256-color ANSI.
+    ///
+    /// <!-- @brief 256 色 ANSI。 / 256-color ANSI. -->
     #[value(help = "Use the ANSI 256-color palette")]
     Ansi256,
-    /// @brief 16 色 ANSI。 / 16-color ANSI.
+    /// 16 色 ANSI。 / 16-color ANSI.
+    ///
+    /// <!-- @brief 16 色 ANSI。 / 16-color ANSI. -->
     #[value(help = "Use the ANSI 16-color palette")]
     Ansi16,
-    /// @brief 禁用颜色。 / Disable color.
+    /// 禁用颜色。 / Disable color.
+    ///
+    /// <!-- @brief 禁用颜色。 / Disable color. -->
     #[value(help = "Disable color")]
     None,
 }
 
-/// @brief CLI 专用字形字面量。 / CLI-local glyph literals.
+/// CLI 专用字形字面量。 / CLI-local glyph literals.
+///
+/// <!-- @brief CLI 专用字形字面量。 / CLI-local glyph literals. -->
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum CliGlyphs {
-    /// @brief 自动探测。 / Detect automatically.
+    /// 自动探测。 / Detect automatically.
+    ///
+    /// <!-- @brief 自动探测。 / Detect automatically. -->
     #[value(help = "Detect glyph capability automatically")]
     Auto,
-    /// @brief 使用 Unicode 字形。 / Use Unicode glyphs.
+    /// 使用 Unicode 字形。 / Use Unicode glyphs.
+    ///
+    /// <!-- @brief 使用 Unicode 字形。 / Use Unicode glyphs. -->
     #[value(help = "Use Unicode glyphs")]
     Unicode,
-    /// @brief 使用 ASCII 字形。 / Use ASCII glyphs.
+    /// 使用 ASCII 字形。 / Use ASCII glyphs.
+    ///
+    /// <!-- @brief 使用 ASCII 字形。 / Use ASCII glyphs. -->
     #[value(help = "Use ASCII glyphs")]
     Ascii,
 }
 
-/// @brief CLI 专用预览字面量。 / CLI-local preview literals.
+/// CLI 专用预览字面量。 / CLI-local preview literals.
+///
+/// <!-- @brief CLI 专用预览字面量。 / CLI-local preview literals. -->
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum CliPreview {
-    /// @brief 树投影。 / Tree projection.
+    /// 树投影。 / Tree projection.
+    ///
+    /// <!-- @brief 树投影。 / Tree projection. -->
     #[value(help = "Start with the tree preview")]
     Tree,
-    /// @brief XML 投影。 / XML projection.
+    /// XML 投影。 / XML projection.
+    ///
+    /// <!-- @brief XML 投影。 / XML projection. -->
     #[value(help = "Start with the XML preview")]
     Xml,
-    /// @brief 正文投影。 / Content projection.
+    /// 正文投影。 / Content projection.
+    ///
+    /// <!-- @brief 正文投影。 / Content projection. -->
     #[value(help = "Start with the content preview")]
     Content,
-    /// @brief 元数据投影。 / Metadata projection.
+    /// 元数据投影。 / Metadata projection.
+    ///
+    /// <!-- @brief 元数据投影。 / Metadata projection. -->
     #[value(help = "Start with the metadata preview")]
     Metadata,
 }
 
 impl From<CliColor> for crate::infrastructure::config::ColorMode {
-    /// @brief 将 CLI 颜色映射为配置领域值。 / Map a CLI color into the configuration value.
-    /// @param value CLI 颜色。 / CLI color.
-    /// @return 配置颜色。 / Configuration color.
+    /// 将 CLI 颜色映射为配置领域值。 / Map a CLI color into the configuration value.
+    ///
+    /// # Arguments
+    ///
+    /// - `value`: CLI 颜色。 / CLI color.
+    ///
+    /// # Returns
+    ///
+    /// 配置颜色。 / Configuration color.
+    ///
+    /// <!-- @brief 将 CLI 颜色映射为配置领域值。 / Map a CLI color into the configuration value. -->
+    /// <!-- @param value CLI 颜色。 / CLI color. -->
+    /// <!-- @return 配置颜色。 / Configuration color. -->
     fn from(value: CliColor) -> Self {
         match value {
             CliColor::Auto => Self::Auto,
@@ -162,9 +229,19 @@ impl From<CliColor> for crate::infrastructure::config::ColorMode {
 }
 
 impl From<CliGlyphs> for crate::infrastructure::config::GlyphMode {
-    /// @brief 将 CLI 字形映射为配置领域值。 / Map CLI glyphs into the configuration value.
-    /// @param value CLI 字形。 / CLI glyphs.
-    /// @return 配置字形。 / Configuration glyphs.
+    /// 将 CLI 字形映射为配置领域值。 / Map CLI glyphs into the configuration value.
+    ///
+    /// # Arguments
+    ///
+    /// - `value`: CLI 字形。 / CLI glyphs.
+    ///
+    /// # Returns
+    ///
+    /// 配置字形。 / Configuration glyphs.
+    ///
+    /// <!-- @brief 将 CLI 字形映射为配置领域值。 / Map CLI glyphs into the configuration value. -->
+    /// <!-- @param value CLI 字形。 / CLI glyphs. -->
+    /// <!-- @return 配置字形。 / Configuration glyphs. -->
     fn from(value: CliGlyphs) -> Self {
         match value {
             CliGlyphs::Auto => Self::Auto,
@@ -175,9 +252,19 @@ impl From<CliGlyphs> for crate::infrastructure::config::GlyphMode {
 }
 
 impl From<CliPreview> for crate::infrastructure::config::PreviewMode {
-    /// @brief 将 CLI 预览映射为配置领域值。 / Map a CLI preview into the configuration value.
-    /// @param value CLI 预览。 / CLI preview.
-    /// @return 配置预览。 / Configuration preview.
+    /// 将 CLI 预览映射为配置领域值。 / Map a CLI preview into the configuration value.
+    ///
+    /// # Arguments
+    ///
+    /// - `value`: CLI 预览。 / CLI preview.
+    ///
+    /// # Returns
+    ///
+    /// 配置预览。 / Configuration preview.
+    ///
+    /// <!-- @brief 将 CLI 预览映射为配置领域值。 / Map a CLI preview into the configuration value. -->
+    /// <!-- @param value CLI 预览。 / CLI preview. -->
+    /// <!-- @return 配置预览。 / Configuration preview. -->
     fn from(value: CliPreview) -> Self {
         match value {
             CliPreview::Tree => Self::Tree,
@@ -188,124 +275,204 @@ impl From<CliPreview> for crate::infrastructure::config::PreviewMode {
     }
 }
 
-/// @brief 顶层命令。 / Top-level commands.
+/// 顶层命令。 / Top-level commands.
+///
+/// <!-- @brief 顶层命令。 / Top-level commands. -->
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// @brief 原子执行脚本文件或标准输入。 / Atomically run a script file or standard input.
-    #[command(about = "Atomically run a script file or standard input")]
+    /// 原子执行脚本文件或标准输入。 / Atomically run a script file or standard input.
+    ///
+    /// <!-- @brief 原子执行脚本文件或标准输入。 / Atomically run a script file or standard input. -->
+    #[command(about = "Atomically run a script file or standard input", long_about = None)]
     Run {
-        #[arg(help = "Script path, or '-' for standard input")]
+        /// 脚本路径，或表示标准输入的 `-`。 / Script path, or `-` for standard input.
+        ///
+        /// <!-- @brief 脚本路径，或表示标准输入的 `-`。 / Script path, or `-` for standard input. -->
+        #[arg(long_help = None, help = "Script path, or '-' for standard input")]
         path: String,
     },
-    /// @brief 执行一段命令行源码。 / Evaluate command-line source.
-    #[command(about = "Evaluate command-line DSL source")]
+    /// 执行一段命令行源码。 / Evaluate command-line source.
+    ///
+    /// <!-- @brief 执行一段命令行源码。 / Evaluate command-line source. -->
+    #[command(about = "Evaluate command-line DSL source", long_about = None)]
     Eval {
-        #[arg(help = "DSL source to evaluate")]
+        /// 待求值的 DSL 源码。 / DSL source to evaluate.
+        ///
+        /// <!-- @brief 待求值的 DSL 源码。 / DSL source to evaluate. -->
+        #[arg(long_help = None, help = "DSL source to evaluate")]
         source: String,
     },
-    /// @brief 仅检查脚本语法和语义。 / Check script syntax and semantics only.
-    #[command(about = "Check script syntax and semantics without executing it")]
+    /// 仅检查脚本语法和语义。 / Check script syntax and semantics only.
+    ///
+    /// <!-- @brief 仅检查脚本语法和语义。 / Check script syntax and semantics only. -->
+    #[command(about = "Check script syntax and semantics without executing it", long_about = None)]
     Check {
-        #[arg(help = "Script path to check")]
+        /// 仅编译而不执行的脚本路径。 / Script path to compile without execution.
+        ///
+        /// <!-- @brief 仅编译而不执行的脚本路径。 / Script path to compile without execution. -->
+        #[arg(long_help = None, help = "Script path to check")]
         path: PathBuf,
     },
-    /// @brief 管理配置。 / Manage configuration.
-    #[command(about = "Manage configuration")]
+    /// 管理配置。 / Manage configuration.
+    ///
+    /// <!-- @brief 管理配置。 / Manage configuration. -->
+    #[command(about = "Manage configuration", long_about = None)]
     Config(ConfigArgs),
-    /// @brief 管理 SQLite 数据库。 / Manage the SQLite database.
-    #[command(about = "Manage the SQLite database")]
+    /// 管理 SQLite 数据库。 / Manage the SQLite database.
+    ///
+    /// <!-- @brief 管理 SQLite 数据库。 / Manage the SQLite database. -->
+    #[command(about = "Manage the SQLite database", long_about = None)]
     Db(DbArgs),
-    /// @brief 汇总环境、配置与数据库状态。 / Summarize environment, configuration, and database state.
-    #[command(about = "Summarize environment, configuration, and database state")]
+    /// 汇总环境、配置与数据库状态。 / Summarize environment, configuration, and database state.
+    ///
+    /// <!-- @brief 汇总环境、配置与数据库状态。 / Summarize environment, configuration, and database state. -->
+    #[command(about = "Summarize environment, configuration, and database state", long_about = None)]
     Doctor,
 }
 
-/// @brief 配置命令参数。 / Configuration command arguments.
+/// 配置命令参数。 / Configuration command arguments.
+///
+/// <!-- @brief 配置命令参数。 / Configuration command arguments. -->
 #[derive(Debug, Args)]
 pub struct ConfigArgs {
-    /// @brief 配置操作。 / Configuration operation.
+    /// 配置操作。 / Configuration operation.
+    ///
+    /// <!-- @brief 配置操作。 / Configuration operation. -->
     #[command(subcommand)]
     pub command: ConfigCommand,
 }
 
-/// @brief 配置管理操作。 / Configuration management operations.
+/// 配置管理操作。 / Configuration management operations.
+///
+/// <!-- @brief 配置管理操作。 / Configuration management operations. -->
 #[derive(Debug, Subcommand)]
 pub enum ConfigCommand {
-    /// @brief 显示平台用户配置路径。 / Show the platform user-config path.
-    #[command(about = "Show the platform user-config path")]
+    /// 显示平台用户配置路径。 / Show the platform user-config path.
+    ///
+    /// <!-- @brief 显示平台用户配置路径。 / Show the platform user-config path. -->
+    #[command(about = "Show the platform user-config path", long_about = None)]
     Path,
-    /// @brief 创建带注释的示例配置。 / Create a commented example configuration.
-    #[command(about = "Create a commented example configuration")]
+    /// 创建带注释的示例配置。 / Create a commented example configuration.
+    ///
+    /// <!-- @brief 创建带注释的示例配置。 / Create a commented example configuration. -->
+    #[command(about = "Create a commented example configuration", long_about = None)]
     Init,
-    /// @brief 检查配置文件且不改写。 / Check a config file without rewriting it.
-    #[command(about = "Check a configuration file without rewriting it")]
+    /// 检查配置文件且不改写。 / Check a config file without rewriting it.
+    ///
+    /// <!-- @brief 检查配置文件且不改写。 / Check a config file without rewriting it. -->
+    #[command(about = "Check a configuration file without rewriting it", long_about = None)]
     Check {
-        #[arg(help = "Configuration path; defaults to the selected user config")]
+        /// 待检查路径；缺省时使用所选用户配置。 / Path to check; defaults to the selected user configuration.
+        ///
+        /// <!-- @brief 待检查路径；缺省时使用所选用户配置。 / Path to check; defaults to the selected user configuration. -->
+        #[arg(long_help = None, help = "Configuration path; defaults to the selected user config")]
         path: Option<PathBuf>,
     },
-    /// @brief 显示全部生效值和来源。 / Show all effective values and provenance.
-    #[command(about = "Show effective configuration and provenance")]
+    /// 显示全部生效值和来源。 / Show all effective values and provenance.
+    ///
+    /// <!-- @brief 显示全部生效值和来源。 / Show all effective values and provenance. -->
+    #[command(about = "Show effective configuration and provenance", long_about = None)]
     Show {
-        /// @brief 明确请求生效视图；目前这是唯一视图。 / Explicitly request the effective view; currently the only view.
-        #[arg(long, help = "Explicitly request the effective view")]
+        /// 明确请求生效视图；目前这是唯一视图。 / Explicitly request the effective view; currently the only view.
+        ///
+        /// <!-- @brief 明确请求生效视图；目前这是唯一视图。 / Explicitly request the effective view; currently the only view. -->
+        #[arg(long_help = None, long, help = "Explicitly request the effective view")]
         effective: bool,
     },
-    /// @brief 解释一个点分配置键。 / Explain one dotted configuration key.
-    #[command(about = "Explain one dotted configuration key")]
+    /// 解释一个点分配置键。 / Explain one dotted configuration key.
+    ///
+    /// <!-- @brief 解释一个点分配置键。 / Explain one dotted configuration key. -->
+    #[command(about = "Explain one dotted configuration key", long_about = None)]
     Explain {
-        #[arg(help = "Dotted configuration key")]
+        /// 待解释的点分配置键。 / Dotted configuration key to explain.
+        ///
+        /// <!-- @brief 待解释的点分配置键。 / Dotted configuration key to explain. -->
+        #[arg(long_help = None, help = "Dotted configuration key")]
         key: String,
     },
-    /// @brief 显式迁移配置文件。 / Explicitly migrate a configuration file.
-    #[command(about = "Explicitly migrate the selected configuration file")]
+    /// 显式迁移配置文件。 / Explicitly migrate a configuration file.
+    ///
+    /// <!-- @brief 显式迁移配置文件。 / Explicitly migrate a configuration file. -->
+    #[command(about = "Explicitly migrate the selected configuration file", long_about = None)]
     Migrate {
-        /// @brief 只报告是否需要迁移。 / Only report whether migration is required.
-        #[arg(long, help = "Report whether migration is required without rewriting")]
+        /// 只报告是否需要迁移。 / Only report whether migration is required.
+        ///
+        /// <!-- @brief 只报告是否需要迁移。 / Only report whether migration is required. -->
+        #[arg(long_help = None, long, help = "Report whether migration is required without rewriting")]
         check: bool,
     },
 }
 
-/// @brief 数据库命令参数。 / Database command arguments.
+/// 数据库命令参数。 / Database command arguments.
+///
+/// <!-- @brief 数据库命令参数。 / Database command arguments. -->
 #[derive(Debug, Args)]
 pub struct DbArgs {
-    /// @brief 数据库操作。 / Database operation.
+    /// 数据库操作。 / Database operation.
+    ///
+    /// <!-- @brief 数据库操作。 / Database operation. -->
     #[command(subcommand)]
     pub command: DbCommand,
 }
 
-/// @brief 数据库维护操作。 / Database maintenance operations.
+/// 数据库维护操作。 / Database maintenance operations.
+///
+/// <!-- @brief 数据库维护操作。 / Database maintenance operations. -->
 #[derive(Debug, Subcommand)]
 pub enum DbCommand {
-    /// @brief 显示数据库身份与版本。 / Show database identity and version.
-    #[command(about = "Show database identity and version")]
+    /// 显示数据库身份与版本。 / Show database identity and version.
+    ///
+    /// <!-- @brief 显示数据库身份与版本。 / Show database identity and version. -->
+    #[command(about = "Show database identity and version", long_about = None)]
     Status,
-    /// @brief 检查或执行数据库迁移。 / Check or apply database migrations.
-    #[command(about = "Check or apply database migrations")]
+    /// 检查或执行数据库迁移。 / Check or apply database migrations.
+    ///
+    /// <!-- @brief 检查或执行数据库迁移。 / Check or apply database migrations. -->
+    #[command(about = "Check or apply database migrations", long_about = None)]
     Migrate {
-        /// @brief 仅检查。 / Check only.
-        #[arg(long, help = "Check migration status without applying changes")]
+        /// 仅检查。 / Check only.
+        ///
+        /// <!-- @brief 仅检查。 / Check only. -->
+        #[arg(long_help = None, long, help = "Check migration status without applying changes")]
         check: bool,
     },
-    /// @brief 创建 SQLite 一致备份。 / Create a SQLite-consistent backup.
-    #[command(about = "Create a SQLite-consistent backup")]
+    /// 创建 SQLite 一致备份。 / Create a SQLite-consistent backup.
+    ///
+    /// <!-- @brief 创建 SQLite 一致备份。 / Create a SQLite-consistent backup. -->
+    #[command(about = "Create a SQLite-consistent backup", long_about = None)]
     Backup {
-        #[arg(help = "Backup destination path")]
+        /// 可选备份目标路径。 / Optional backup destination path.
+        ///
+        /// <!-- @brief 可选备份目标路径。 / Optional backup destination path. -->
+        #[arg(long_help = None, help = "Backup destination path")]
         path: Option<PathBuf>,
     },
-    /// @brief 检查物理与领域一致性。 / Check physical and domain consistency.
-    #[command(about = "Check physical and domain consistency")]
+    /// 检查物理与领域一致性。 / Check physical and domain consistency.
+    ///
+    /// <!-- @brief 检查物理与领域一致性。 / Check physical and domain consistency. -->
+    #[command(about = "Check physical and domain consistency", long_about = None)]
     Check {
-        /// @brief 运行完整 integrity_check。 / Run the full integrity_check.
-        #[arg(long, help = "Run the full SQLite integrity check")]
+        /// 运行完整 integrity_check。 / Run the full integrity_check.
+        ///
+        /// <!-- @brief 运行完整 integrity_check。 / Run the full integrity_check. -->
+        #[arg(long_help = None, long, help = "Run the full SQLite integrity check")]
         full: bool,
     },
-    /// @brief 从规范表重建搜索索引。 / Rebuild search indexes from canonical tables.
-    #[command(about = "Rebuild search indexes from canonical tables")]
+    /// 从规范表重建搜索索引。 / Rebuild search indexes from canonical tables.
+    ///
+    /// <!-- @brief 从规范表重建搜索索引。 / Rebuild search indexes from canonical tables. -->
+    #[command(about = "Rebuild search indexes from canonical tables", long_about = None)]
     RebuildIndex,
 }
 
-/// @brief 从真实进程流运行 CLI。 / Run the CLI with real process streams.
-/// @return 适合作为 `main` 返回值的退出码。 / Exit code suitable for `main`.
+/// 从真实进程流运行 CLI。 / Run the CLI with real process streams.
+///
+/// # Returns
+///
+/// 适合作为 `main` 返回值的退出码。 / Exit code suitable for `main`.
+///
+/// <!-- @brief 从真实进程流运行 CLI。 / Run the CLI with real process streams. -->
+/// <!-- @return 适合作为 `main` 返回值的退出码。 / Exit code suitable for `main`. -->
 pub fn main_entry() -> ExitCode {
     let arguments = env::args_os().collect::<Vec<_>>();
     let early_format = early_output_format(&arguments);
@@ -333,9 +500,19 @@ pub fn main_entry() -> ExitCode {
     ExitCode::from(run(cli, &mut input, &mut stdout, &mut stderr))
 }
 
-/// @brief 在完整解析前识别机器输出请求。 / Recognize a machine-output request before full parsing.
-/// @param arguments 原始进程参数，包括程序名。 / Raw process arguments including the program name.
-/// @return 仅识别精确 `--format=json` 或 `--format json`；其余回退 human。 / Recognizes only exact `--format=json` or `--format json`; all other input falls back to human.
+/// 在完整解析前识别机器输出请求。 / Recognize a machine-output request before full parsing.
+///
+/// # Arguments
+///
+/// - `arguments`: 原始进程参数，包括程序名。 / Raw process arguments including the program name.
+///
+/// # Returns
+///
+/// 仅识别精确 `--format=json` 或 `--format json`；其余回退 human。 / Recognizes only exact `--format=json` or `--format json`; all other input falls back to human.
+///
+/// <!-- @brief 在完整解析前识别机器输出请求。 / Recognize a machine-output request before full parsing. -->
+/// <!-- @param arguments 原始进程参数，包括程序名。 / Raw process arguments including the program name. -->
+/// <!-- @return 仅识别精确 `--format=json` 或 `--format json`；其余回退 human。 / Recognizes only exact `--format=json` or `--format json`; all other input falls back to human. -->
 fn early_output_format(arguments: &[OsString]) -> OutputFormat {
     let mut format = OutputFormat::Human;
     let mut index = 1;
@@ -355,12 +532,25 @@ fn early_output_format(arguments: &[OsString]) -> OutputFormat {
     format
 }
 
-/// @brief 发布 Clap 的早期终止或参数错误。 / Publish an early Clap exit or argument error.
-/// @param error Clap 产生的结构化错误。 / Structured error produced by Clap.
-/// @param format 完整解析前识别的输出格式。 / Output format recognized before full parsing.
-/// @param stdout 标准输出。 / Standard output.
-/// @param stderr 标准错误。 / Standard error.
-/// @return 稳定退出码。 / Stable exit code.
+/// 发布 Clap 的早期终止或参数错误。 / Publish an early Clap exit or argument error.
+///
+/// # Arguments
+///
+/// - `error`: Clap 产生的结构化错误。 / Structured error produced by Clap.
+/// - `format`: 完整解析前识别的输出格式。 / Output format recognized before full parsing.
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+///
+/// # Returns
+///
+/// 稳定退出码。 / Stable exit code.
+///
+/// <!-- @brief 发布 Clap 的早期终止或参数错误。 / Publish an early Clap exit or argument error. -->
+/// <!-- @param error Clap 产生的结构化错误。 / Structured error produced by Clap. -->
+/// <!-- @param format 完整解析前识别的输出格式。 / Output format recognized before full parsing. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @return 稳定退出码。 / Stable exit code. -->
 fn write_clap_error(
     error: clap::Error,
     format: OutputFormat,
@@ -387,18 +577,40 @@ fn write_clap_error(
     }
 }
 
-/// @brief 判断真实终端调用是否应进入 TUI。 / Decide whether a real-terminal invocation should enter the TUI.
-/// @param cli 已解析命令行。 / Parsed command line.
-/// @param stdin_terminal 标准输入是否为终端。 / Whether standard input is a terminal.
-/// @param stdout_terminal 标准输出是否为终端。 / Whether standard output is a terminal.
-/// @return 仅交互 human 模式且两端均为终端时为真。 / True only for interactive human mode with both terminal endpoints.
+/// 判断真实终端调用是否应进入 TUI。 / Decide whether a real-terminal invocation should enter the TUI.
+///
+/// # Arguments
+///
+/// - `cli`: 已解析命令行。 / Parsed command line.
+/// - `stdin_terminal`: 标准输入是否为终端。 / Whether standard input is a terminal.
+/// - `stdout_terminal`: 标准输出是否为终端。 / Whether standard output is a terminal.
+///
+/// # Returns
+///
+/// 仅交互 human 模式且两端均为终端时为真。 / True only for interactive human mode with both terminal endpoints.
+///
+/// <!-- @brief 判断真实终端调用是否应进入 TUI。 / Decide whether a real-terminal invocation should enter the TUI. -->
+/// <!-- @param cli 已解析命令行。 / Parsed command line. -->
+/// <!-- @param stdin_terminal 标准输入是否为终端。 / Whether standard input is a terminal. -->
+/// <!-- @param stdout_terminal 标准输出是否为终端。 / Whether standard output is a terminal. -->
+/// <!-- @return 仅交互 human 模式且两端均为终端时为真。 / True only for interactive human mode with both terminal endpoints. -->
 fn should_use_tui(cli: &Cli, stdin_terminal: bool, stdout_terminal: bool) -> bool {
     cli.command.is_none() && cli.format == OutputFormat::Human && stdin_terminal && stdout_terminal
 }
 
-/// @brief 装配应用并运行真实终端 TUI。 / Assemble the application and run the real-terminal TUI.
-/// @param cli 已确认适用于 TUI 的命令行。 / Command line already confirmed suitable for the TUI.
-/// @return 稳定退出码。 / Stable exit code.
+/// 装配应用并运行真实终端 TUI。 / Assemble the application and run the real-terminal TUI.
+///
+/// # Arguments
+///
+/// - `cli`: 已确认适用于 TUI 的命令行。 / Command line already confirmed suitable for the TUI.
+///
+/// # Returns
+///
+/// 稳定退出码。 / Stable exit code.
+///
+/// <!-- @brief 装配应用并运行真实终端 TUI。 / Assemble the application and run the real-terminal TUI. -->
+/// <!-- @param cli 已确认适用于 TUI 的命令行。 / Command line already confirmed suitable for the TUI. -->
+/// <!-- @return 稳定退出码。 / Stable exit code. -->
 fn run_tui(cli: Cli) -> u8 {
     let result = (|| {
         let paths = ConfigPaths::discover().map_err(config_error)?;
@@ -424,12 +636,25 @@ fn run_tui(cli: Cli) -> u8 {
     }
 }
 
-/// @brief 以可注入流执行已解析参数。 / Execute parsed arguments with injectable streams.
-/// @param cli 已解析命令行。 / Parsed command line.
-/// @param input 标准输入。 / Standard input.
-/// @param stdout 标准输出。 / Standard output.
-/// @param stderr 标准错误。 / Standard error.
-/// @return 稳定退出码。 / Stable exit code.
+/// 以可注入流执行已解析参数。 / Execute parsed arguments with injectable streams.
+///
+/// # Arguments
+///
+/// - `cli`: 已解析命令行。 / Parsed command line.
+/// - `input`: 标准输入。 / Standard input.
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+///
+/// # Returns
+///
+/// 稳定退出码。 / Stable exit code.
+///
+/// <!-- @brief 以可注入流执行已解析参数。 / Execute parsed arguments with injectable streams. -->
+/// <!-- @param cli 已解析命令行。 / Parsed command line. -->
+/// <!-- @param input 标准输入。 / Standard input. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @return 稳定退出码。 / Stable exit code. -->
 pub fn run(
     cli: Cli,
     input: &mut dyn BufRead,
@@ -460,14 +685,51 @@ pub fn run(
     }
 }
 
-/// @brief CLI 分派的成功结果。 / Successful CLI dispatch outcome.
+/// CLI 分派的成功结果。 / Successful CLI dispatch outcome.
+///
+/// <!-- @brief CLI 分派的成功结果。 / Successful CLI dispatch outcome. -->
 enum ExecuteOutcome {
-    /// @brief 非交互命令成功完成。 / A non-interactive command completed successfully.
+    /// 非交互命令成功完成。 / A non-interactive command completed successfully.
+    ///
+    /// <!-- @brief 非交互命令成功完成。 / A non-interactive command completed successfully. -->
     Complete,
-    /// @brief REPL 已自行发布任何致命诊断。 / The REPL has published any fatal diagnostic itself.
+    /// REPL 已自行发布任何致命诊断。 / The REPL has published any fatal diagnostic itself.
+    ///
+    /// <!-- @brief REPL 已自行发布任何致命诊断。 / The REPL has published any fatal diagnostic itself. -->
     Repl(repl::ReplOutcome),
 }
 
+/// 分派已解析命令并返回宿主结果。 / Dispatch a parsed command and return its host outcome.
+///
+/// # Arguments
+///
+/// - `cli`: 已解析命令行。 / Parsed command line.
+/// - `input`: 可注入输入流。 / Injectable input stream.
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+///
+/// # Returns
+///
+/// 成功的分派结果。 / Successful dispatch outcome.
+///
+/// # Errors
+///
+/// 当配置、文件、数据库、编译、执行或输出操作失败时，返回输出格式及结构化诊断。 /
+/// Returns the output format and a structured diagnostic when configuration, file, database,
+/// compilation, execution, or output work fails.
+///
+/// # Panics
+///
+/// 仅当内部命令分区不变量被破坏，导致配置命令进入应用分支时触发。 / Panics only if the
+/// internal command-partition invariant is violated and a configuration command reaches the
+/// application branch.
+///
+/// <!-- @brief 分派已解析命令并返回宿主结果。 / Dispatch a parsed command and return its host outcome. -->
+/// <!-- @param cli 已解析命令行。 / Parsed command line. -->
+/// <!-- @param input 可注入输入流。 / Injectable input stream. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @return 成功的分派结果。 / Successful dispatch outcome. -->
 fn execute(
     mut cli: Cli,
     input: &mut dyn BufRead,
@@ -558,6 +820,26 @@ fn execute(
     }
 }
 
+/// 加载并叠加命令行选择的配置层。 / Load and overlay configuration layers selected by the CLI.
+///
+/// # Arguments
+///
+/// - `cli`: 已解析命令行覆盖项。 / Parsed command-line overrides.
+/// - `paths`: 平台配置路径。 / Platform configuration paths.
+///
+/// # Returns
+///
+/// 带来源信息的生效配置。 / Effective configuration with provenance.
+///
+/// # Errors
+///
+/// 当任一配置层无法读取、解析、迁移或验证时返回聚合诊断。 / Returns an aggregate diagnostic
+/// when a configuration layer cannot be read, parsed, migrated, or validated.
+///
+/// <!-- @brief 加载并叠加命令行选择的配置层。 / Load and overlay configuration layers selected by the CLI. -->
+/// <!-- @param cli 已解析命令行覆盖项。 / Parsed command-line overrides. -->
+/// <!-- @param paths 平台配置路径。 / Platform configuration paths. -->
+/// <!-- @return 带来源信息的生效配置。 / Effective configuration with provenance. -->
 fn load_config(cli: &Cli, paths: &ConfigPaths) -> Result<LoadedConfig, Diagnostic> {
     let overlay = ConfigOverlay {
         database_path: cli.database.clone(),
@@ -579,6 +861,33 @@ fn load_config(cli: &Cli, paths: &ConfigPaths) -> Result<LoadedConfig, Diagnosti
         .map_err(config_errors)
 }
 
+/// 打开应用、求值 DSL 并发布结果。 / Open the application, evaluate DSL, and publish its result.
+///
+/// # Arguments
+///
+/// - `loaded`: 已加载配置。 / Loaded configuration.
+/// - `database_path`: 数据库路径。 / Database path.
+/// - `source`: DSL 源码。 / DSL source.
+/// - `format`: 输出格式。 / Output format.
+/// - `stdout`: 标准输出。 / Standard output.
+///
+/// # Returns
+///
+/// 成功执行并写出结果时返回空值。 / Returns the unit value after successful execution and output.
+///
+/// # Errors
+///
+/// 当数据库打开、原始输出契约检查、求值或结果写入失败时返回格式化诊断。 / Returns a
+/// formatted diagnostic when database opening, raw-output contract checking, evaluation, or result
+/// writing fails.
+///
+/// <!-- @brief 打开应用、求值 DSL 并发布结果。 / Open the application, evaluate DSL, and publish its result. -->
+/// <!-- @param loaded 已加载配置。 / Loaded configuration. -->
+/// <!-- @param database_path 数据库路径。 / Database path. -->
+/// <!-- @param source DSL 源码。 / DSL source. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @return 成功执行并写出结果时返回空值。 / Returns the unit value after successful execution and output. -->
 fn eval_source(
     loaded: LoadedConfig,
     database_path: PathBuf,
@@ -625,6 +934,31 @@ fn eval_source(
     })
 }
 
+/// 执行配置维护命令。 / Execute a configuration-maintenance command.
+///
+/// # Arguments
+///
+/// - `command`: 配置操作。 / Configuration operation.
+/// - `cli`: 命令行选择。 / Command-line selections.
+/// - `paths`: 平台配置路径。 / Platform configuration paths.
+/// - `stdout`: 标准输出。 / Standard output.
+///
+/// # Returns
+///
+/// 操作及输出成功时返回空值。 / Returns the unit value when the operation and output succeed.
+///
+/// # Errors
+///
+/// 当配置初始化、检查、迁移、加载、键解释或结果写入失败时返回格式化诊断。 / Returns a
+/// formatted diagnostic when configuration initialization, checking, migration, loading, key
+/// explanation, or result writing fails.
+///
+/// <!-- @brief 执行配置维护命令。 / Execute a configuration-maintenance command. -->
+/// <!-- @param command 配置操作。 / Configuration operation. -->
+/// <!-- @param cli 命令行选择。 / Command-line selections. -->
+/// <!-- @param paths 平台配置路径。 / Platform configuration paths. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @return 操作及输出成功时返回空值。 / Returns the unit value when the operation and output succeed. -->
 fn run_config(
     command: ConfigCommand,
     cli: &Cli,
@@ -697,6 +1031,35 @@ fn run_config(
     }
 }
 
+/// 执行 SQLite 维护命令。 / Execute a SQLite maintenance command.
+///
+/// # Arguments
+///
+/// - `command`: 数据库操作。 / Database operation.
+/// - `paths`: 平台配置路径。 / Platform configuration paths.
+/// - `database_path`: 数据库路径。 / Database path.
+/// - `database_config`: 生效数据库配置。 / Effective database configuration.
+/// - `format`: 输出格式。 / Output format.
+/// - `stdout`: 标准输出。 / Standard output.
+///
+/// # Returns
+///
+/// 操作及输出成功时返回空值。 / Returns the unit value when the operation and output succeed.
+///
+/// # Errors
+///
+/// 当数据库打开、迁移、备份、完整性检查、索引重建或结果写入失败时返回格式化诊断。 /
+/// Returns a formatted diagnostic when database opening, migration, backup, integrity checking,
+/// index rebuilding, or result writing fails.
+///
+/// <!-- @brief 执行 SQLite 维护命令。 / Execute a SQLite maintenance command. -->
+/// <!-- @param command 数据库操作。 / Database operation. -->
+/// <!-- @param paths 平台配置路径。 / Platform configuration paths. -->
+/// <!-- @param database_path 数据库路径。 / Database path. -->
+/// <!-- @param database_config 生效数据库配置。 / Effective database configuration. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @return 操作及输出成功时返回空值。 / Returns the unit value when the operation and output succeed. -->
 fn run_db(
     command: DbCommand,
     paths: &ConfigPaths,
@@ -784,6 +1147,31 @@ fn run_db(
     }
 }
 
+/// 汇总配置与数据库健康状态。 / Summarize configuration and database health.
+///
+/// # Arguments
+///
+/// - `loaded`: 生效配置及其诊断。 / Effective configuration and its diagnostics.
+/// - `path`: 数据库路径。 / Database path.
+/// - `format`: 输出格式。 / Output format.
+/// - `stdout`: 标准输出。 / Standard output.
+///
+/// # Returns
+///
+/// 健康报告成功写出时返回空值。 / Returns the unit value after the health report is written.
+///
+/// # Errors
+///
+/// 当数据库打开、状态读取、兼容数据库检查或报告写入失败时返回格式化诊断。 / Returns a
+/// formatted diagnostic when database opening, status reading, compatible-database checking, or
+/// report writing fails.
+///
+/// <!-- @brief 汇总配置与数据库健康状态。 / Summarize configuration and database health. -->
+/// <!-- @param loaded 生效配置及其诊断。 / Effective configuration and its diagnostics. -->
+/// <!-- @param path 数据库路径。 / Database path. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @return 健康报告成功写出时返回空值。 / Returns the unit value after the health report is written. -->
 fn run_doctor(
     loaded: &LoadedConfig,
     path: &Path,
@@ -824,6 +1212,35 @@ fn run_doctor(
     )
 }
 
+/// 按输出契约发布管理结果。 / Publish a management result under the output contract.
+///
+/// # Arguments
+///
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `format`: 输出格式。 / Output format.
+/// - `value`: JSON 成功负载。 / JSON success payload.
+/// - `human`: 人类可读摘要。 / Human-readable summary.
+///
+/// # Returns
+///
+/// 输出成功时返回空值。 / Returns the unit value after successful output.
+///
+/// # Errors
+///
+/// 当输出流写入或 JSON 序列化失败时返回格式化诊断。 / Returns a formatted diagnostic when
+/// output writing or JSON serialization fails.
+///
+/// # Panics
+///
+/// 若原始格式绕过分派前的管理命令检查，则内部不可达分支会触发。 / Panics if raw format
+/// bypasses the pre-dispatch management-command check.
+///
+/// <!-- @brief 按输出契约发布管理结果。 / Publish a management result under the output contract. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param value JSON 成功负载。 / JSON success payload. -->
+/// <!-- @param human 人类可读摘要。 / Human-readable summary. -->
+/// <!-- @return 输出成功时返回空值。 / Returns the unit value after successful output. -->
 fn emit(
     stdout: &mut dyn Write,
     format: OutputFormat,
@@ -838,6 +1255,30 @@ fn emit(
     result.map_err(|error| (format, output_error(error)))
 }
 
+/// 发布配置迁移结果。 / Publish a configuration-migration outcome.
+///
+/// # Arguments
+///
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `format`: 输出格式。 / Output format.
+/// - `path`: 已检查或迁移的配置路径。 / Configuration path checked or migrated.
+/// - `outcome`: 迁移结果。 / Migration outcome.
+///
+/// # Returns
+///
+/// 输出成功时返回空值。 / Returns the unit value after successful output.
+///
+/// # Errors
+///
+/// 当结果写入或 JSON 序列化失败时返回格式化诊断。 / Returns a formatted diagnostic when
+/// result writing or JSON serialization fails.
+///
+/// <!-- @brief 发布配置迁移结果。 / Publish a configuration-migration outcome. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param path 已检查或迁移的配置路径。 / Configuration path checked or migrated. -->
+/// <!-- @param outcome 迁移结果。 / Migration outcome. -->
+/// <!-- @return 输出成功时返回空值。 / Returns the unit value after successful output. -->
 fn emit_migration(
     stdout: &mut dyn Write,
     format: OutputFormat,
@@ -865,6 +1306,32 @@ fn emit_migration(
     emit(stdout, format, value, &human)
 }
 
+/// 发布失败诊断并映射稳定退出码。 / Publish a failure diagnostic and map its stable exit code.
+///
+/// # Arguments
+///
+/// - `stdout`: 标准输出。 / Standard output.
+/// - `stderr`: 标准错误。 / Standard error.
+/// - `format`: 输出格式。 / Output format.
+/// - `diagnostic`: 待发布诊断。 / Diagnostic to publish.
+///
+/// # Returns
+///
+/// 与诊断类别对应的稳定退出码。 / Stable exit code corresponding to the diagnostic category.
+///
+/// # Notes
+///
+/// 输出本身失败时仍返回原诊断的退出码，避免用二次错误遮蔽首要故障。 / If output itself
+/// fails, the original diagnostic's exit code is still returned so a secondary failure does not
+/// obscure the primary one.
+///
+/// <!-- @brief 发布失败诊断并映射稳定退出码。 / Publish a failure diagnostic and map its stable exit code. -->
+/// <!-- @param stdout 标准输出。 / Standard output. -->
+/// <!-- @param stderr 标准错误。 / Standard error. -->
+/// <!-- @param format 输出格式。 / Output format. -->
+/// <!-- @param diagnostic 待发布诊断。 / Diagnostic to publish. -->
+/// <!-- @return 与诊断类别对应的稳定退出码。 / Stable exit code corresponding to the diagnostic category. -->
+/// <!-- @note 输出本身失败时仍返回原诊断的退出码，避免用二次错误遮蔽首要故障。 / If output itself fails, the original diagnostic's exit code is still returned so a secondary failure does not obscure the primary one. -->
 fn fail(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -881,6 +1348,19 @@ fn fail(
     }
 }
 
+/// 聚合多个配置诊断。 / Aggregate multiple configuration diagnostics.
+///
+/// # Arguments
+///
+/// - `errors`: 待合并的配置诊断。 / Configuration diagnostics to combine.
+///
+/// # Returns
+///
+/// 单个共享配置诊断。 / One shared configuration diagnostic.
+///
+/// <!-- @brief 聚合多个配置诊断。 / Aggregate multiple configuration diagnostics. -->
+/// <!-- @param errors 待合并的配置诊断。 / Configuration diagnostics to combine. -->
+/// <!-- @return 单个共享配置诊断。 / One shared configuration diagnostic. -->
 fn config_errors(errors: Vec<ConfigDiagnostic>) -> Diagnostic {
     let message = errors
         .iter()
@@ -890,9 +1370,38 @@ fn config_errors(errors: Vec<ConfigDiagnostic>) -> Diagnostic {
     Diagnostic::error("E_CONFIG", DiagnosticCategory::Configuration, message)
 }
 
+/// 转换单个配置诊断。 / Convert one configuration diagnostic.
+///
+/// # Arguments
+///
+/// - `error`: 配置诊断。 / Configuration diagnostic.
+///
+/// # Returns
+///
+/// 共享诊断表示。 / Shared diagnostic representation.
+///
+/// <!-- @brief 转换单个配置诊断。 / Convert one configuration diagnostic. -->
+/// <!-- @param error 配置诊断。 / Configuration diagnostic. -->
+/// <!-- @return 共享诊断表示。 / Shared diagnostic representation. -->
 fn config_error(error: ConfigDiagnostic) -> Diagnostic {
     config_errors(vec![error])
 }
+
+/// 为路径相关 I/O 错误构造共享诊断。 / Build a shared diagnostic for a path-related I/O error.
+///
+/// # Arguments
+///
+/// - `path`: 失败操作涉及的路径。 / Path involved in the failed operation.
+/// - `error`: 原始 I/O 错误。 / Original I/O error.
+///
+/// # Returns
+///
+/// 包含路径上下文的外部系统诊断。 / External-system diagnostic containing path context.
+///
+/// <!-- @brief 为路径相关 I/O 错误构造共享诊断。 / Build a shared diagnostic for a path-related I/O error. -->
+/// <!-- @param path 失败操作涉及的路径。 / Path involved in the failed operation. -->
+/// <!-- @param error 原始 I/O 错误。 / Original I/O error. -->
+/// <!-- @return 包含路径上下文的外部系统诊断。 / External-system diagnostic containing path context. -->
 fn io_error(path: &Path, error: io::Error) -> Diagnostic {
     Diagnostic::error(
         "E_IO",
@@ -900,9 +1409,43 @@ fn io_error(path: &Path, error: io::Error) -> Diagnostic {
         format!("`{}`: {error}", path.display()),
     )
 }
+
+/// 为输出 I/O 错误构造共享诊断。 / Build a shared diagnostic for an output I/O error.
+///
+/// # Arguments
+///
+/// - `error`: 原始 I/O 错误。 / Original I/O error.
+///
+/// # Returns
+///
+/// 外部系统输出诊断。 / External-system output diagnostic.
+///
+/// <!-- @brief 为输出 I/O 错误构造共享诊断。 / Build a shared diagnostic for an output I/O error. -->
+/// <!-- @param error 原始 I/O 错误。 / Original I/O error. -->
+/// <!-- @return 外部系统输出诊断。 / External-system output diagnostic. -->
 fn output_error(error: io::Error) -> Diagnostic {
     Diagnostic::error("E_OUTPUT", DiagnosticCategory::External, error.to_string())
 }
+
+/// 按需创建目标文件的父目录。 / Create a target file's parent directory when needed.
+///
+/// # Arguments
+///
+/// - `path`: 目标文件路径。 / Target file path.
+///
+/// # Returns
+///
+/// 父目录已存在或创建成功时返回空值。 / Returns the unit value when the parent exists or was
+/// created successfully.
+///
+/// # Errors
+///
+/// 当父目录无法创建时返回 I/O 错误。 / Returns an I/O error when the parent directory cannot
+/// be created.
+///
+/// <!-- @brief 按需创建目标文件的父目录。 / Create a target file's parent directory when needed. -->
+/// <!-- @param path 目标文件路径。 / Target file path. -->
+/// <!-- @return 父目录已存在或创建成功时返回空值。 / Returns the unit value when the parent exists or was created successfully. -->
 fn ensure_parent(path: &Path) -> io::Result<()> {
     if let Some(parent) = path
         .parent()
@@ -912,6 +1455,22 @@ fn ensure_parent(path: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+
+/// 生成带时间戳的默认备份路径。 / Generate a timestamped default backup path.
+///
+/// # Arguments
+///
+/// - `paths`: 包含备份目录的平台路径。 / Platform paths containing the backup directory.
+/// - `database`: 源数据库路径。 / Source database path.
+///
+/// # Returns
+///
+/// 位于备份目录中的目标路径。 / Destination path inside the backup directory.
+///
+/// <!-- @brief 生成带时间戳的默认备份路径。 / Generate a timestamped default backup path. -->
+/// <!-- @param paths 包含备份目录的平台路径。 / Platform paths containing the backup directory. -->
+/// <!-- @param database 源数据库路径。 / Source database path. -->
+/// <!-- @return 位于备份目录中的目标路径。 / Destination path inside the backup directory. -->
 fn default_backup(paths: &ConfigPaths, database: &Path) -> PathBuf {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -921,9 +1480,19 @@ fn default_backup(paths: &ConfigPaths, database: &Path) -> PathBuf {
     paths.backup_dir.join(format!("{name}.{stamp}.bak"))
 }
 
-/// @brief 把生效配置映射为与配置层解耦的 SQLite 选项。 / Map effective configuration to configuration-independent SQLite options.
-/// @param config 生效数据库配置。 / Effective database configuration.
-/// @return 强类型 SQLite 打开选项。 / Strongly typed SQLite open options.
+/// 把生效配置映射为与配置层解耦的 SQLite 选项。 / Map effective configuration to configuration-independent SQLite options.
+///
+/// # Arguments
+///
+/// - `config`: 生效数据库配置。 / Effective database configuration.
+///
+/// # Returns
+///
+/// 强类型 SQLite 打开选项。 / Strongly typed SQLite open options.
+///
+/// <!-- @brief 把生效配置映射为与配置层解耦的 SQLite 选项。 / Map effective configuration to configuration-independent SQLite options. -->
+/// <!-- @param config 生效数据库配置。 / Effective database configuration. -->
+/// <!-- @return 强类型 SQLite 打开选项。 / Strongly typed SQLite open options. -->
 fn sqlite_options(config: &DatabaseConfig) -> SqliteOptions {
     SqliteOptions::from(config)
 }

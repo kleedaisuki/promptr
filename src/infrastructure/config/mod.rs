@@ -1,6 +1,8 @@
 //! 配置基础设施 / Configuration infrastructure.
 //!
-//! 该模块把无损 TOML 文档、版本化原始结构与运行时强类型配置分离。
+//! 该模块把无损 TOML 文档、版本化原始结构与运行时强类型配置分离 / This module
+//! separates lossless TOML documents, versioned raw structures, and strongly typed runtime
+//! configuration.
 
 mod diagnostic;
 mod loader;

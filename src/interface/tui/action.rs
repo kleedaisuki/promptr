@@ -2,7 +2,9 @@
 
 use super::model::{Pane, PreviewTab};
 
-/// @brief 移动方向。 / Movement direction.
+/// 移动方向。 / Movement direction.
+///
+/// <!-- @brief 移动方向。 / Movement direction. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveDirection {
     /// 向前或向上。 / Previous or up.
@@ -11,7 +13,9 @@ pub enum MoveDirection {
     Next,
 }
 
-/// @brief 键盘和鼠标最终汇聚到的用户动作。 / User action shared by keyboard and mouse.
+/// 键盘和鼠标最终汇聚到的用户动作。 / User action shared by keyboard and mouse.
+///
+/// <!-- @brief 键盘和鼠标最终汇聚到的用户动作。 / User action shared by keyboard and mouse. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiAction {
     /// 移动目录选择。 / Move catalog selection.
@@ -69,22 +73,37 @@ pub enum UiAction {
     /// 请求退出。 / Request application exit.
     Quit,
     /// 更新终端大小。 / Update terminal size.
-    Resize { width: u16, height: u16 },
+    Resize {
+        /// 新终端宽度（列）。 / New terminal width in columns.
+        width: u16,
+        /// 新终端高度（行）。 / New terminal height in rows.
+        height: u16,
+    },
     /// 检查其他数据库连接是否提交了变化。 / Check whether another database connection committed changes.
     CheckExternalChanges,
     /// 无语义输入。 / Input with no semantic action.
     Noop,
 }
 
-/// @brief 内置编辑器光标移动语义。 / Built-in editor cursor movement semantics.
+/// 内置编辑器光标移动语义。 / Built-in editor cursor movement semantics.
+///
+/// <!-- @brief 内置编辑器光标移动语义。 / Built-in editor cursor movement semantics. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorMove {
+    /// 向上一行。 / Move one line up.
     Up,
+    /// 向下一行。 / Move one line down.
     Down,
+    /// 向左一个字符。 / Move one character left.
     Left,
+    /// 向右一个字符。 / Move one character right.
     Right,
+    /// 向左一个单词。 / Move one word left.
     WordLeft,
+    /// 向右一个单词。 / Move one word right.
     WordRight,
+    /// 移至当前行开头。 / Move to the start of the current line.
     LineStart,
+    /// 移至当前行末尾。 / Move to the end of the current line.
     LineEnd,
 }

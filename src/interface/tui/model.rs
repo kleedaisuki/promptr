@@ -12,20 +12,31 @@ use super::{
     layout::{Layout, LayoutClass},
 };
 
-/// @brief 可聚焦窗格。 / Focusable pane.
+/// 可聚焦窗格。 / Focusable pane.
+///
+/// <!-- @brief 可聚焦窗格。 / Focusable pane. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
+    /// 节点目录窗格。 / Node catalog pane.
     Catalog,
+    /// 类型化预览窗格。 / Typed preview pane.
     Preview,
+    /// 节点元数据窗格。 / Node metadata pane.
     Metadata,
 }
 
-/// @brief 预览投影标签。 / Preview projection tab.
+/// 预览投影标签。 / Preview projection tab.
+///
+/// <!-- @brief 预览投影标签。 / Preview projection tab. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewTab {
+    /// 命名图的有界树投影。 / Bounded tree projection of the named graph.
     Tree,
+    /// 规范 XML 投影。 / Canonical XML projection.
     Xml,
+    /// Fragment 文本内容投影。 / Fragment text-content projection.
     Content,
+    /// 节点元数据投影。 / Node metadata projection.
     Metadata,
 }
 
@@ -45,29 +56,47 @@ impl PreviewTab {
     }
 }
 
-/// @brief 待确认操作类型。 / Kind of operation awaiting confirmation.
+/// 待确认操作类型。 / Kind of operation awaiting confirmation.
+///
+/// <!-- @brief 待确认操作类型。 / Kind of operation awaiting confirmation. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confirmation {
+    /// 丢弃已修改的 Fragment 草稿。 / Discard a modified Fragment draft.
     DiscardFragmentDraft,
+    /// 丢弃已修改的元数据草稿。 / Discard a modified metadata draft.
     DiscardMetadataDraft,
+    /// 删除当前节点。 / Delete the current node.
     DeleteNode,
+    /// 带未保存草稿退出。 / Quit with an unsaved draft.
     QuitWithDraft,
 }
 
-/// @brief 当前交互模式。 / Current interaction mode.
+/// 当前交互模式。 / Current interaction mode.
+///
+/// <!-- @brief 当前交互模式。 / Current interaction mode. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
+    /// 浏览目录和预览。 / Browse the catalog and previews.
     Browse,
+    /// 输入 DSL 命令。 / Enter a DSL command.
     Command,
+    /// 输入增量搜索查询。 / Enter an incremental search query.
     Search,
+    /// 编辑 Fragment 正文。 / Edit Fragment content.
     FragmentEdit,
+    /// 在 Fragment 正文中查找。 / Find within Fragment content.
     FragmentFind,
+    /// 编辑节点元数据。 / Edit node metadata.
     MetadataEdit,
+    /// 等待指定破坏性操作的确认。 / Await confirmation of the given destructive operation.
     Confirm(Confirmation),
+    /// 显示帮助覆盖层。 / Display the help overlay.
     Help,
 }
 
-/// @brief 未持有存储引用的编辑草稿。 / Edit draft that owns no store reference.
+/// 未持有存储引用的编辑草稿。 / Edit draft that owns no store reference.
+///
+/// <!-- @brief 未持有存储引用的编辑草稿。 / Edit draft that owns no store reference. -->
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Draft {
     /// 打开时的文本。 / Text when opened.
@@ -80,7 +109,9 @@ pub struct Draft {
     pub symbol: Option<String>,
 }
 
-/// @brief 由 ratatui-textarea 驱动的拥有权编辑器状态。 / Owned editor state driven by ratatui-textarea.
+/// 由 ratatui-textarea 驱动的拥有权编辑器状态。 / Owned editor state driven by ratatui-textarea.
+///
+/// <!-- @brief 由 ratatui-textarea 驱动的拥有权编辑器状态。 / Owned editor state driven by ratatui-textarea. -->
 #[derive(Clone, Debug)]
 pub struct EditorState {
     original: String,
@@ -97,7 +128,9 @@ impl PartialEq for EditorState {
 impl Eq for EditorState {}
 
 impl EditorState {
-    /// @brief 从原始文本建立编辑器。 / Build an editor from original text.
+    /// 从原始文本建立编辑器。 / Build an editor from original text.
+    ///
+    /// <!-- @brief 从原始文本建立编辑器。 / Build an editor from original text. -->
     pub fn new(text: String) -> Self {
         let lines = text.split('\n').map(str::to_owned).collect();
         Self {
@@ -106,15 +139,21 @@ impl EditorState {
         }
     }
 
-    /// @brief 返回未修改的原文。 / Return the unmodified source text.
+    /// 返回未修改的原文。 / Return the unmodified source text.
+    ///
+    /// <!-- @brief 返回未修改的原文。 / Return the unmodified source text. -->
     pub fn original(&self) -> &str {
         &self.original
     }
-    /// @brief 返回当前精确文本。 / Return the current exact text.
+    /// 返回当前精确文本。 / Return the current exact text.
+    ///
+    /// <!-- @brief 返回当前精确文本。 / Return the current exact text. -->
     pub fn text(&self) -> String {
         self.area.lines().join("\n")
     }
-    /// @brief 返回可由视图克隆并配置的文本区。 / Return a textarea clone configurable by the view.
+    /// 返回可由视图克隆并配置的文本区。 / Return a textarea clone configurable by the view.
+    ///
+    /// <!-- @brief 返回可由视图克隆并配置的文本区。 / Return a textarea clone configurable by the view. -->
     pub fn textarea(&self) -> TextArea<'static> {
         self.area.clone()
     }
@@ -153,30 +192,45 @@ impl EditorState {
     }
 }
 
-/// @brief 当前预览的类型化宿主投影。 / Typed host projection for the current preview.
+/// 当前预览的类型化宿主投影。 / Typed host projection for the current preview.
+///
+/// <!-- @brief 当前预览的类型化宿主投影。 / Typed host projection for the current preview. -->
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreviewPayload {
+    /// 已布局的出现树行。 / Pre-laid-out occurrence-tree lines.
     Tree(Vec<String>),
+    /// 规范 XML 及其有界文本预览。 / Canonical XML and its bounded text preview.
     Xml {
+        /// 可流式读取的完整规范 XML。 / Complete streamable canonical XML.
         value: CanonicalXml,
+        /// 适合终端渲染的有界前缀。 / Bounded prefix suitable for terminal rendering.
         preview: String,
+        /// 预览是否省略了剩余字节。 / Whether the preview omits remaining bytes.
         truncated: bool,
     },
+    /// Fragment 正文的有界投影。 / Bounded projection of Fragment content.
     Content {
+        /// 适合终端渲染的文本。 / Text suitable for terminal rendering.
         text: String,
+        /// 投影是否省略了剩余文本。 / Whether the projection omits remaining text.
         truncated: bool,
     },
+    /// 完整节点视图用于元数据展示。 / Complete node view for metadata display.
     Metadata(NodeView),
 }
 
 impl Draft {
-    /// @brief 草稿是否被修改。 / Whether the draft has changed.
+    /// 草稿是否被修改。 / Whether the draft has changed.
+    ///
+    /// <!-- @brief 草稿是否被修改。 / Whether the draft has changed. -->
     pub fn is_dirty(&self) -> bool {
         self.text != self.original
     }
 }
 
-/// @brief reducer 请求宿主执行的外部效果。 / External effect requested from the host by the reducer.
+/// reducer 请求宿主执行的外部效果。 / External effect requested from the host by the reducer.
+///
+/// <!-- @brief reducer 请求宿主执行的外部效果。 / External effect requested from the host by the reducer. -->
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     /// 执行 DSL 语句。 / Execute a DSL statement.
@@ -194,7 +248,12 @@ pub enum Effect {
     /// 删除当前符号。 / Delete the current symbol.
     Delete(String),
     /// 加载或刷新预览。 / Load or refresh a preview.
-    LoadPreview { symbol: String, tab: PreviewTab },
+    LoadPreview {
+        /// 要投影的节点符号。 / Symbol of the node to project.
+        symbol: String,
+        /// 要生成的预览投影。 / Preview projection to generate.
+        tab: PreviewTab,
+    },
     /// 获取可复制的规范 XML 类型值。 / Fetch a typed canonical XML value for copying.
     CopyCanonicalXml(String),
     /// 比较持久化适配器的变化令牌。 / Compare the persistence adapter's change token.
@@ -203,44 +262,82 @@ pub enum Effect {
     Exit,
 }
 
-/// @brief TUI 的全部可序列化会话状态。 / Complete serializable-style TUI session state.
+/// TUI 的全部可序列化会话状态。 / Complete serializable-style TUI session state.
+///
+/// <!-- @brief TUI 的全部可序列化会话状态。 / Complete serializable-style TUI session state. -->
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
-    /// @brief 当前交互模式。 / Current interaction mode.
+    /// 当前交互模式。 / Current interaction mode.
+    ///
+    /// <!-- @brief 当前交互模式。 / Current interaction mode. -->
     pub mode: Mode,
-    /// @brief 当前聚焦窗格。 / Currently focused pane.
+    /// 当前聚焦窗格。 / Currently focused pane.
+    ///
+    /// <!-- @brief 当前聚焦窗格。 / Currently focused pane. -->
     pub focus: Pane,
-    /// @brief 当前预览标签。 / Current preview tab.
+    /// 当前预览标签。 / Current preview tab.
+    ///
+    /// <!-- @brief 当前预览标签。 / Current preview tab. -->
     pub preview_tab: PreviewTab,
-    /// @brief 最近一次终端矩形。 / Most recent terminal rectangle.
+    /// 最近一次终端矩形。 / Most recent terminal rectangle.
+    ///
+    /// <!-- @brief 最近一次终端矩形。 / Most recent terminal rectangle. -->
     pub terminal: Rect,
-    /// @brief 派生的响应式布局等级。 / Derived responsive layout class.
+    /// 派生的响应式布局等级。 / Derived responsive layout class.
+    ///
+    /// <!-- @brief 派生的响应式布局等级。 / Derived responsive layout class. -->
     pub layout_class: LayoutClass,
-    /// @brief 有序目录符号投影。 / Ordered catalog symbol projection.
+    /// 有序目录符号投影。 / Ordered catalog symbol projection.
+    ///
+    /// <!-- @brief 有序目录符号投影。 / Ordered catalog symbol projection. -->
     pub catalog: Vec<String>,
-    /// @brief 目录中的选中索引。 / Selected catalog index.
+    /// 目录中的选中索引。 / Selected catalog index.
+    ///
+    /// <!-- @brief 目录中的选中索引。 / Selected catalog index. -->
     pub selected: Option<usize>,
-    /// @brief 目录首个可见行索引。 / Index of the first visible catalog row.
+    /// 目录首个可见行索引。 / Index of the first visible catalog row.
+    ///
+    /// <!-- @brief 目录首个可见行索引。 / Index of the first visible catalog row. -->
     pub scroll: usize,
-    /// @brief 命令或搜索的暂存输入。 / Staged command or search input.
+    /// 命令或搜索的暂存输入。 / Staged command or search input.
+    ///
+    /// <!-- @brief 命令或搜索的暂存输入。 / Staged command or search input. -->
     pub input: String,
-    /// @brief 可选编辑草稿。 / Optional editing draft.
+    /// 可选编辑草稿。 / Optional editing draft.
+    ///
+    /// <!-- @brief 可选编辑草稿。 / Optional editing draft. -->
     pub draft: Option<Draft>,
-    /// @brief Fragment 编辑时的真实多行编辑器。 / Real multiline editor used for Fragment editing.
+    /// Fragment 编辑时的真实多行编辑器。 / Real multiline editor used for Fragment editing.
+    ///
+    /// <!-- @brief Fragment 编辑时的真实多行编辑器。 / Real multiline editor used for Fragment editing. -->
     pub editor: Option<EditorState>,
-    /// @brief 当前类型化预览。 / Current typed preview.
+    /// 当前类型化预览。 / Current typed preview.
+    ///
+    /// <!-- @brief 当前类型化预览。 / Current typed preview. -->
     pub preview: Option<PreviewPayload>,
-    /// @brief 与预览分离的结构化诊断。 / Structured diagnostic kept separate from preview content.
+    /// 与预览分离的结构化诊断。 / Structured diagnostic kept separate from preview content.
+    ///
+    /// <!-- @brief 与预览分离的结构化诊断。 / Structured diagnostic kept separate from preview content. -->
     pub preview_diagnostic: Option<Diagnostic>,
-    /// @brief 每个预览标签记忆的滚动位置。 / Remembered scroll offset for each preview tab.
+    /// 每个预览标签记忆的滚动位置。 / Remembered scroll offset for each preview tab.
+    ///
+    /// <!-- @brief 每个预览标签记忆的滚动位置。 / Remembered scroll offset for each preview tab. -->
     pub preview_scroll: [usize; 4],
-    /// @brief LIST 返回的节点投影，用于有界树展开。 / LIST node projections used for bounded tree expansion.
+    /// LIST 返回的节点投影，用于有界树展开。 / LIST node projections used for bounded tree expansion.
+    ///
+    /// <!-- @brief LIST 返回的节点投影，用于有界树展开。 / LIST node projections used for bounded tree expansion. -->
     pub nodes: Vec<NodeView>,
-    /// @brief 最近观察到的连接局部变化令牌。 / Most recently observed connection-local change token.
+    /// 最近观察到的连接局部变化令牌。 / Most recently observed connection-local change token.
+    ///
+    /// <!-- @brief 最近观察到的连接局部变化令牌。 / Most recently observed connection-local change token. -->
     pub change_token: Option<u64>,
-    /// @brief 宿主是否应结束事件循环。 / Whether the host should end its event loop.
+    /// 宿主是否应结束事件循环。 / Whether the host should end its event loop.
+    ///
+    /// <!-- @brief 宿主是否应结束事件循环。 / Whether the host should end its event loop. -->
     pub should_quit: bool,
-    /// @brief 最近一条可观察状态消息。 / Most recent observable status message.
+    /// 最近一条可观察状态消息。 / Most recent observable status message.
+    ///
+    /// <!-- @brief 最近一条可观察状态消息。 / Most recent observable status message. -->
     pub notice: Option<String>,
 }
 
@@ -251,7 +348,9 @@ impl Default for Model {
 }
 
 impl Model {
-    /// @brief 创建可用于任意终端尺寸的空模型。 / Create an empty model for any terminal size.
+    /// 创建可用于任意终端尺寸的空模型。 / Create an empty model for any terminal size.
+    ///
+    /// <!-- @brief 创建可用于任意终端尺寸的空模型。 / Create an empty model for any terminal size. -->
     pub fn new(width: u16, height: u16) -> Self {
         Self {
             mode: Mode::Browse,
@@ -275,7 +374,9 @@ impl Model {
         }
     }
 
-    /// @brief 安装可恢复的编辑草稿。 / Install a recoverable edit draft.
+    /// 安装可恢复的编辑草稿。 / Install a recoverable edit draft.
+    ///
+    /// <!-- @brief 安装可恢复的编辑草稿。 / Install a recoverable edit draft. -->
     pub fn set_draft(&mut self, original: String, text: String) {
         self.draft = Some(Draft {
             original: original.clone(),
@@ -292,7 +393,9 @@ impl Model {
         }
     }
 
-    /// @brief 返回当前选中符号。 / Return the currently selected symbol.
+    /// 返回当前选中符号。 / Return the currently selected symbol.
+    ///
+    /// <!-- @brief 返回当前选中符号。 / Return the currently selected symbol. -->
     pub fn selected_symbol(&self) -> Option<&str> {
         self.selected
             .and_then(|index| self.catalog.get(index))
@@ -327,10 +430,21 @@ impl Model {
     }
 }
 
-/// @brief 以纯函数方式应用动作并产生效果。 / Apply an action as a pure function and produce effects.
-/// @param model 旧模型，按值传入以阻止隐式共享状态。 / Old model passed by value to prevent implicit shared state.
-/// @param action 设备无关动作。 / Device-independent action.
-/// @return 新模型与待执行效果。 / New model and effects to execute.
+/// 以纯函数方式应用动作并产生效果。 / Apply an action as a pure function and produce effects.
+///
+/// # Arguments / 参数
+///
+/// - `model` — 旧模型，按值传入以阻止隐式共享状态。 / Old model passed by value to prevent implicit shared state.
+/// - `action` — 设备无关动作。 / Device-independent action.
+///
+/// # Returns / 返回值
+///
+/// 新模型与待执行效果。 / New model and effects to execute.
+///
+/// <!-- @brief 以纯函数方式应用动作并产生效果。 / Apply an action as a pure function and produce effects. -->
+/// <!-- @param model 旧模型，按值传入以阻止隐式共享状态。 / Old model passed by value to prevent implicit shared state. -->
+/// <!-- @param action 设备无关动作。 / Device-independent action. -->
+/// <!-- @return 新模型与待执行效果。 / New model and effects to execute. -->
 pub fn update(mut model: Model, action: UiAction) -> (Model, Vec<Effect>) {
     let mut effects = Vec::new();
     match action {

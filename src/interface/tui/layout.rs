@@ -2,7 +2,9 @@
 
 use ratatui::layout::Rect;
 
-/// @brief 响应式布局等级。 / Responsive layout class.
+/// 响应式布局等级。 / Responsive layout class.
+///
+/// <!-- @brief 响应式布局等级。 / Responsive layout class. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutClass {
     /// 三栏完整布局。 / Full three-pane layout.
@@ -16,10 +18,21 @@ pub enum LayoutClass {
 }
 
 impl LayoutClass {
-    /// @brief 根据终端尺寸选择布局。 / Select a layout from terminal dimensions.
-    /// @param width 终端列数。 / Terminal columns.
-    /// @param height 终端行数。 / Terminal rows.
-    /// @return 确定且无重叠的布局等级。 / Deterministic non-overlapping layout class.
+    /// 根据终端尺寸选择布局。 / Select a layout from terminal dimensions.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `width` — 终端列数。 / Terminal columns.
+    /// - `height` — 终端行数。 / Terminal rows.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 确定且无重叠的布局等级。 / Deterministic non-overlapping layout class.
+    ///
+    /// <!-- @brief 根据终端尺寸选择布局。 / Select a layout from terminal dimensions. -->
+    /// <!-- @param width 终端列数。 / Terminal columns. -->
+    /// <!-- @param height 终端行数。 / Terminal rows. -->
+    /// <!-- @return 确定且无重叠的布局等级。 / Deterministic non-overlapping layout class. -->
     pub const fn for_size(width: u16, height: u16) -> Self {
         if width < 60 || height < 16 {
             Self::Focused
@@ -33,7 +46,9 @@ impl LayoutClass {
     }
 }
 
-/// @brief 一次 view 计算所共享的窗格矩形。 / Pane rectangles shared by one view pass.
+/// 一次 view 计算所共享的窗格矩形。 / Pane rectangles shared by one view pass.
+///
+/// <!-- @brief 一次 view 计算所共享的窗格矩形。 / Pane rectangles shared by one view pass. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
     /// 布局等级。 / Layout class.
@@ -51,9 +66,19 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// @brief 计算经过饱和减法保护的布局。 / Compute layout with saturating geometry.
-    /// @param area 完整终端矩形。 / Full terminal rectangle.
-    /// @return 供渲染和命中测试共同使用的矩形。 / Rectangles shared by rendering and hit testing.
+    /// 计算经过饱和减法保护的布局。 / Compute layout with saturating geometry.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `area` — 完整终端矩形。 / Full terminal rectangle.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 供渲染和命中测试共同使用的矩形。 / Rectangles shared by rendering and hit testing.
+    ///
+    /// <!-- @brief 计算经过饱和减法保护的布局。 / Compute layout with saturating geometry. -->
+    /// <!-- @param area 完整终端矩形。 / Full terminal rectangle. -->
+    /// <!-- @return 供渲染和命中测试共同使用的矩形。 / Rectangles shared by rendering and hit testing. -->
     pub fn compute(area: Rect) -> Self {
         let class = LayoutClass::for_size(area.width, area.height);
         let status_height = if area.height == 0 { 0 } else { 1 };

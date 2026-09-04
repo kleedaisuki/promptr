@@ -10,46 +10,79 @@ use super::{
     model::{Mode, Pane, PreviewTab},
 };
 
-/// @brief view 发布的可点击语义目标。 / Semantic hit target published by the view.
+/// view 发布的可点击语义目标。 / Semantic hit target published by the view.
+///
+/// <!-- @brief view 发布的可点击语义目标。 / Semantic hit target published by the view. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitTarget {
+    /// 聚焦指定窗格。 / Focus the given pane.
     Pane(Pane),
+    /// 选择稳定目录索引对应的节点。 / Select the node at a stable catalog index.
     Node(usize),
+    /// 激活指定预览标签。 / Activate the given preview tab.
     Preview(PreviewTab),
+    /// 打开当前选择。 / Open the current selection.
     OpenSelected,
 }
 
-/// @brief 矩形与语义目标的绑定。 / Binding between a rectangle and semantic target.
+/// 矩形与语义目标的绑定。 / Binding between a rectangle and semantic target.
+///
+/// <!-- @brief 矩形与语义目标的绑定。 / Binding between a rectangle and semantic target. -->
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HitRegion {
-    /// @brief 可点击矩形。 / Clickable rectangle.
+    /// 可点击矩形。 / Clickable rectangle.
+    ///
+    /// <!-- @brief 可点击矩形。 / Clickable rectangle. -->
     pub rect: Rect,
-    /// @brief 矩形代表的动作目标。 / Action target represented by the rectangle.
+    /// 矩形代表的动作目标。 / Action target represented by the rectangle.
+    ///
+    /// <!-- @brief 矩形代表的动作目标。 / Action target represented by the rectangle. -->
     pub target: HitTarget,
 }
 
-/// @brief 集中处理键盘、鼠标、粘贴与 resize 的输入映射器。 / Central mapper for keyboard, mouse, paste, and resize.
+/// 集中处理键盘、鼠标、粘贴与 resize 的输入映射器。 / Central mapper for keyboard, mouse, paste, and resize.
+///
+/// <!-- @brief 集中处理键盘、鼠标、粘贴与 resize 的输入映射器。 / Central mapper for keyboard, mouse, paste, and resize. -->
 #[derive(Debug, Clone, Default)]
 pub struct InputMapper {
     regions: Vec<HitRegion>,
 }
 
 impl InputMapper {
-    /// @brief 创建没有命中区域的输入映射器。 / Create an input mapper without hit regions.
+    /// 创建没有命中区域的输入映射器。 / Create an input mapper without hit regions.
+    ///
+    /// <!-- @brief 创建没有命中区域的输入映射器。 / Create an input mapper without hit regions. -->
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// @brief 替换为最近一次 view 生成的命中区域。 / Replace hit regions with those from the latest view pass.
-    /// @param regions 最新区域；不会自行重算几何。 / Latest regions; geometry is never independently recomputed.
+    /// 替换为最近一次 view 生成的命中区域。 / Replace hit regions with those from the latest view pass.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `regions` — 最新区域；不会自行重算几何。 / Latest regions; geometry is never independently recomputed.
+    ///
+    /// <!-- @brief 替换为最近一次 view 生成的命中区域。 / Replace hit regions with those from the latest view pass. -->
+    /// <!-- @param regions 最新区域；不会自行重算几何。 / Latest regions; geometry is never independently recomputed. -->
     pub fn set_regions(&mut self, regions: Vec<HitRegion>) {
         self.regions = regions;
     }
 
-    /// @brief 将一个终端事件映射成至多一个用户动作。 / Map a terminal event to at most one user action.
-    /// @param event Crossterm 终端事件。 / Crossterm terminal event.
-    /// @param mode 事件发生时的明确模式。 / Explicit mode at event time.
-    /// @return 忽略 release 事件，否则返回统一动作。 / No action for release events, otherwise a unified action.
+    /// 将一个终端事件映射成至多一个用户动作。 / Map a terminal event to at most one user action.
+    ///
+    /// # Arguments / 参数
+    ///
+    /// - `event` — Crossterm 终端事件。 / Crossterm terminal event.
+    /// - `mode` — 事件发生时的明确模式。 / Explicit mode at event time.
+    ///
+    /// # Returns / 返回值
+    ///
+    /// 忽略 release 事件，否则返回统一动作。 / No action for release events, otherwise a unified action.
+    ///
+    /// <!-- @brief 将一个终端事件映射成至多一个用户动作。 / Map a terminal event to at most one user action. -->
+    /// <!-- @param event Crossterm 终端事件。 / Crossterm terminal event. -->
+    /// <!-- @param mode 事件发生时的明确模式。 / Explicit mode at event time. -->
+    /// <!-- @return 忽略 release 事件，否则返回统一动作。 / No action for release events, otherwise a unified action. -->
     pub fn map(&self, event: Event, mode: Mode) -> Option<UiAction> {
         match event {
             Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {

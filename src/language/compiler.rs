@@ -12,12 +12,49 @@ use super::{
     ListFilter, MetadataValue, Program, SearchField as AstSearchField, Span, Spanned, Statement,
 };
 
-/// @brief 编译 DSL 程序并在目录快照之上模拟其顺序效果。 / Compile a DSL program while simulating its ordered effects over a catalog snapshot.
-/// @param program 已完成解析的程序。 / Fully parsed program.
-/// @param catalog 编译开始时的不可变目录快照。 / Immutable catalog snapshot at compilation start.
-/// @param policy 本次调用允许的外部效果。 / External effects allowed for this invocation.
-/// @return 已检查程序，或执行任何操作前产生的结构化诊断。 / Checked program, or a structured diagnostic produced before any operation executes.
-/// @note 目录覆盖层（catalog overlay）只保存符号、种类与边；编译器绝不修改持久状态。 / The catalog overlay stores only symbols, kinds, and edges; the compiler never mutates persistent state.
+/// 编译 DSL 程序并在目录快照之上模拟其顺序效果。 / Compile a DSL program while simulating its ordered effects over a catalog snapshot.
+///
+/// <!-- @brief 编译 DSL 程序并在目录快照之上模拟其顺序效果。 / Compile a DSL program while simulating its ordered effects over a catalog snapshot. -->
+///
+/// # Arguments
+///
+/// - `program`：已完成解析的程序。 / Fully parsed program.
+/// - `catalog`：编译开始时的不可变目录快照。 / Immutable catalog snapshot at compilation start.
+/// - `policy`：本次调用允许的外部效果。 / External effects allowed for this invocation.
+///
+/// <!-- @param program 已完成解析的程序。 / Fully parsed program. -->
+/// <!-- @param catalog 编译开始时的不可变目录快照。 / Immutable catalog snapshot at compilation start. -->
+/// <!-- @param policy 本次调用允许的外部效果。 / External effects allowed for this invocation. -->
+///
+/// # Errors
+///
+/// 当目录快照内部不一致、符号或节点种类无效、提示词引用无效或成环、
+/// 元数据无效，或调用策略缺少所需外部效果时，返回结构化诊断。 /
+/// Returns a structured diagnostic when the catalog snapshot is inconsistent; a symbol, node
+/// kind, prompt reference, cycle, or metadata value is invalid; or the invocation policy lacks a
+/// required external effect.
+///
+/// <!-- @return 已检查程序，或执行任何操作前产生的结构化诊断。 / Checked program, or a structured diagnostic produced before any operation executes. -->
+///
+/// # Notes
+///
+/// 目录覆盖层（catalog overlay）只保存符号、种类与边；编译器绝不修改持久状态。 / The catalog overlay stores only symbols, kinds, and edges; the compiler never mutates persistent state.
+///
+/// <!-- @note 目录覆盖层（catalog overlay）只保存符号、种类与边；编译器绝不修改持久状态。 / The catalog overlay stores only symbols, kinds, and edges; the compiler never mutates persistent state. -->
+///
+/// # Examples
+///
+/// ```
+/// use promptr::{InvocationPolicy, domain::CatalogSnapshot, language::{Program, compile}};
+///
+/// let checked = compile(
+///     &Program::default(),
+///     &CatalogSnapshot::default(),
+///     InvocationPolicy::script(),
+/// )?;
+/// assert!(checked.ops.is_empty());
+/// # Ok::<(), promptr::Diagnostic>(())
+/// ```
 pub fn compile(
     program: &Program,
     catalog: &CatalogSnapshot,
@@ -33,27 +70,51 @@ pub fn compile(
     Ok(checked)
 }
 
-/// @brief 覆盖层节点的最小语义投影。 / Minimal semantic projection of an overlay node.
+/// 覆盖层节点的最小语义投影。 / Minimal semantic projection of an overlay node.
+///
+/// <!-- @brief 覆盖层节点的最小语义投影。 / Minimal semantic projection of an overlay node. -->
 #[derive(Clone, Debug)]
 struct OverlayNode {
-    /// @brief 节点种类。 / Node kind.
+    /// 节点种类。 / Node kind.
+    ///
+    /// <!-- @brief 节点种类。 / Node kind. -->
     kind: NodeKind,
-    /// @brief Prompt 的有序子符号；Fragment 始终为空。 / Ordered child symbols for a Prompt; always empty for a Fragment.
+    /// Prompt 的有序子符号；Fragment 始终为空。 / Ordered child symbols for a Prompt; always empty for a Fragment.
+    ///
+    /// <!-- @brief Prompt 的有序子符号；Fragment 始终为空。 / Ordered child symbols for a Prompt; always empty for a Fragment. -->
     children: Vec<Symbol>,
 }
 
-/// @brief 单次纯编译的可变工作状态。 / Mutable working state for one pure compilation.
+/// 单次纯编译的可变工作状态。 / Mutable working state for one pure compilation.
+///
+/// <!-- @brief 单次纯编译的可变工作状态。 / Mutable working state for one pure compilation. -->
 struct Compiler {
-    /// @brief 按当前可见符号索引的顺序语义覆盖层。 / Ordered semantic overlay indexed by currently visible symbols.
+    /// 按当前可见符号索引的顺序语义覆盖层。 / Ordered semantic overlay indexed by currently visible symbols.
+    ///
+    /// <!-- @brief 按当前可见符号索引的顺序语义覆盖层。 / Ordered semantic overlay indexed by currently visible symbols. -->
     overlay: BTreeMap<Symbol, OverlayNode>,
-    /// @brief 保持源码顺序的已生成操作。 / Generated operations in source order.
+    /// 保持源码顺序的已生成操作。 / Generated operations in source order.
+    ///
+    /// <!-- @brief 保持源码顺序的已生成操作。 / Generated operations in source order. -->
     ops: Vec<Op>,
 }
 
 impl Compiler {
-    /// @brief 从有效快照创建覆盖层。 / Create an overlay from a valid snapshot.
-    /// @param catalog 不可变目录快照。 / Immutable catalog snapshot.
-    /// @return 编译状态，或快照内部不一致诊断。 / Compiler state, or a snapshot-inconsistency diagnostic.
+    /// 从有效快照创建覆盖层。 / Create an overlay from a valid snapshot.
+    ///
+    /// <!-- @brief 从有效快照创建覆盖层。 / Create an overlay from a valid snapshot. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `catalog`：不可变目录快照。 / Immutable catalog snapshot.
+    ///
+    /// <!-- @param catalog 不可变目录快照。 / Immutable catalog snapshot. -->
+    ///
+    /// # Errors
+    ///
+    /// 当提示词子节点 ID 无法在快照中解析时，返回内部不一致诊断。 / Returns an internal-inconsistency diagnostic when a prompt child ID cannot be resolved in the snapshot.
+    ///
+    /// <!-- @return 编译状态，或快照内部不一致诊断。 / Compiler state, or a snapshot-inconsistency diagnostic. -->
     fn new(catalog: &CatalogSnapshot) -> Result<Self> {
         let mut overlay = BTreeMap::new();
         for node in catalog.iter_by_symbol() {
@@ -89,9 +150,21 @@ impl Compiler {
         })
     }
 
-    /// @brief 编译并模拟一条语句。 / Compile and simulate one statement.
-    /// @param statement 带源码位置的语句。 / Spanned statement.
-    /// @return 成功或精确语义诊断。 / Success or a precise semantic diagnostic.
+    /// 编译并模拟一条语句。 / Compile and simulate one statement.
+    ///
+    /// <!-- @brief 编译并模拟一条语句。 / Compile and simulate one statement. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `statement`：带源码位置的语句。 / Spanned statement.
+    ///
+    /// <!-- @param statement 带源码位置的语句。 / Spanned statement. -->
+    ///
+    /// # Errors
+    ///
+    /// 语句的符号、节点种类、引用、拓扑或元数据违反语义约束时，返回精确诊断。 / Returns a precise diagnostic when a statement's symbols, node kinds, references, topology, or metadata violate semantic constraints.
+    ///
+    /// <!-- @return 成功或精确语义诊断。 / Success or a precise semantic diagnostic. -->
     fn compile_statement(&mut self, statement: &Spanned<Statement>) -> Result<()> {
         match &statement.value {
             Statement::Fragment { symbol } => self.compile_fragment(symbol),
@@ -141,9 +214,21 @@ impl Compiler {
         }
     }
 
-    /// @brief 编译 Fragment 创建或编辑。 / Compile Fragment creation or editing.
-    /// @param symbol 目标符号。 / Target symbol.
-    /// @return 成功或种类诊断。 / Success or a kind diagnostic.
+    /// 编译 Fragment 创建或编辑。 / Compile Fragment creation or editing.
+    ///
+    /// <!-- @brief 编译 Fragment 创建或编辑。 / Compile Fragment creation or editing. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：目标符号。 / Target symbol.
+    ///
+    /// <!-- @param symbol 目标符号。 / Target symbol. -->
+    ///
+    /// # Errors
+    ///
+    /// 符号无效，或已存在的同名节点不是片段时，返回诊断。 / Returns a diagnostic when the symbol is invalid or an existing same-named node is not a fragment.
+    ///
+    /// <!-- @return 成功或种类诊断。 / Success or a kind diagnostic. -->
     fn compile_fragment(&mut self, symbol: &Spanned<String>) -> Result<()> {
         let target = checked_symbol(symbol)?;
         if let Some(node) = self.overlay.get(&target) {
@@ -171,11 +256,25 @@ impl Compiler {
         Ok(())
     }
 
-    /// @brief 编译 Prompt 完整替换并验证所有引用及无环性。 / Compile complete Prompt replacement and validate all references and acyclicity.
-    /// @param symbol Prompt 符号。 / Prompt symbol.
-    /// @param children 有序子符号。 / Ordered child symbols.
-    /// @param statement_span 整条语句的位置。 / Span of the whole statement.
-    /// @return 成功或引用、种类、空列表、环诊断。 / Success or a reference, kind, empty-list, or cycle diagnostic.
+    /// 编译 Prompt 完整替换并验证所有引用及无环性。 / Compile complete Prompt replacement and validate all references and acyclicity.
+    ///
+    /// <!-- @brief 编译 Prompt 完整替换并验证所有引用及无环性。 / Compile complete Prompt replacement and validate all references and acyclicity. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：Prompt 符号。 / Prompt symbol.
+    /// - `children`：有序子符号。 / Ordered child symbols.
+    /// - `statement_span`：整条语句的位置。 / Span of the whole statement.
+    ///
+    /// <!-- @param symbol Prompt 符号。 / Prompt symbol. -->
+    /// <!-- @param children 有序子符号。 / Ordered child symbols. -->
+    /// <!-- @param statement_span 整条语句的位置。 / Span of the whole statement. -->
+    ///
+    /// # Errors
+    ///
+    /// 提示词或子符号无效、节点种类不匹配、子列表为空，或替换后图成环时，返回诊断。 / Returns a diagnostic for invalid prompt or child symbols, node-kind mismatches, an empty child list, or a cycle introduced by replacement.
+    ///
+    /// <!-- @return 成功或引用、种类、空列表、环诊断。 / Success or a reference, kind, empty-list, or cycle diagnostic. -->
     fn compile_prompt(
         &mut self,
         symbol: &Spanned<String>,
@@ -205,8 +304,9 @@ impl Compiler {
         let mut resolved = Vec::with_capacity(children.len());
         for child in children {
             let candidate = checked_symbol(child)?;
-            // A newly declared prompt is visible to its own initializer so the
-            // more useful cycle diagnostic wins over an "unknown symbol" error.
+            // 新声明的提示词对自身初始化器可见，因此优先报告更有用的环诊断，而非“未知符号”。 /
+            // A newly declared prompt is visible to its own initializer, so the more useful cycle
+            // diagnostic wins over an "unknown symbol" error.
             if candidate != target && !self.overlay.contains_key(&candidate) {
                 return Err(error_at(
                     "E0101",
@@ -254,10 +354,23 @@ impl Compiler {
         Ok(())
     }
 
-    /// @brief 编译重命名并在覆盖层中保留全部拓扑。 / Compile rename while preserving all overlay topology.
-    /// @param old 当前符号。 / Current symbol.
-    /// @param new 新符号。 / New symbol.
-    /// @return 成功或名称解析/冲突诊断。 / Success or name-resolution/conflict diagnostic.
+    /// 编译重命名并在覆盖层中保留全部拓扑。 / Compile rename while preserving all overlay topology.
+    ///
+    /// <!-- @brief 编译重命名并在覆盖层中保留全部拓扑。 / Compile rename while preserving all overlay topology. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `old`：当前符号。 / Current symbol.
+    /// - `new`：新符号。 / New symbol.
+    ///
+    /// <!-- @param old 当前符号。 / Current symbol. -->
+    /// <!-- @param new 新符号。 / New symbol. -->
+    ///
+    /// # Errors
+    ///
+    /// 源或目标符号无效、源不存在，或目标已被占用时，返回诊断。 / Returns a diagnostic when either symbol is invalid, the source is absent, or the destination is occupied.
+    ///
+    /// <!-- @return 成功或名称解析/冲突诊断。 / Success or name-resolution/conflict diagnostic. -->
     fn compile_rename(&mut self, old: &Spanned<String>, new: &Spanned<String>) -> Result<()> {
         let target = self.resolve(old, "rename source")?;
         let new_symbol = checked_symbol(new)?;
@@ -287,9 +400,21 @@ impl Compiler {
         Ok(())
     }
 
-    /// @brief 编译仅允许无入边节点的删除。 / Compile deletion restricted to nodes without incoming edges.
-    /// @param symbol 删除目标。 / Deletion target.
-    /// @return 成功或名称/入边诊断。 / Success or a name/incoming-edge diagnostic.
+    /// 编译仅允许无入边节点的删除。 / Compile deletion restricted to nodes without incoming edges.
+    ///
+    /// <!-- @brief 编译仅允许无入边节点的删除。 / Compile deletion restricted to nodes without incoming edges. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：删除目标。 / Deletion target.
+    ///
+    /// <!-- @param symbol 删除目标。 / Deletion target. -->
+    ///
+    /// # Errors
+    ///
+    /// 符号无效、节点不存在，或仍被提示词引用时，返回诊断。 / Returns a diagnostic when the symbol is invalid, the node is absent, or a prompt still references it.
+    ///
+    /// <!-- @return 成功或名称/入边诊断。 / Success or a name/incoming-edge diagnostic. -->
     fn compile_delete(&mut self, symbol: &Spanned<String>) -> Result<()> {
         let target = self.resolve(symbol, "delete target")?;
         let mut parents = Vec::new();
@@ -324,10 +449,23 @@ impl Compiler {
         Ok(())
     }
 
-    /// @brief 编译元数据字段的完整替换。 / Compile complete replacement of a metadata field.
-    /// @param symbol 现有目标符号。 / Existing target symbol.
-    /// @param value 元数据替换值。 / Metadata replacement value.
-    /// @return 成功或目标/标签诊断。 / Success or a target/tag diagnostic.
+    /// 编译元数据字段的完整替换。 / Compile complete replacement of a metadata field.
+    ///
+    /// <!-- @brief 编译元数据字段的完整替换。 / Compile complete replacement of a metadata field. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：现有目标符号。 / Existing target symbol.
+    /// - `value`：元数据替换值。 / Metadata replacement value.
+    ///
+    /// <!-- @param symbol 现有目标符号。 / Existing target symbol. -->
+    /// <!-- @param value 元数据替换值。 / Metadata replacement value. -->
+    ///
+    /// # Errors
+    ///
+    /// 目标符号无效或不存在，或任一标签无效时，返回诊断。 / Returns a diagnostic when the target symbol is invalid or absent, or any tag is invalid.
+    ///
+    /// <!-- @return 成功或目标/标签诊断。 / Success or a target/tag diagnostic. -->
     fn compile_metadata(&mut self, symbol: &Spanned<String>, value: &MetadataValue) -> Result<()> {
         let target = self.resolve(symbol, "metadata target")?;
         match value {
@@ -360,10 +498,23 @@ impl Compiler {
         Ok(())
     }
 
-    /// @brief 解析当前覆盖层中的现有符号。 / Resolve an existing symbol in the current overlay.
-    /// @param symbol 带位置的候选符号。 / Spanned candidate symbol.
-    /// @param role 符号在语句中的角色。 / Symbol role within the statement.
-    /// @return 领域符号或名称解析诊断。 / Domain symbol or a name-resolution diagnostic.
+    /// 解析当前覆盖层中的现有符号。 / Resolve an existing symbol in the current overlay.
+    ///
+    /// <!-- @brief 解析当前覆盖层中的现有符号。 / Resolve an existing symbol in the current overlay. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：带位置的候选符号。 / Spanned candidate symbol.
+    /// - `role`：符号在语句中的角色。 / Symbol role within the statement.
+    ///
+    /// <!-- @param symbol 带位置的候选符号。 / Spanned candidate symbol. -->
+    /// <!-- @param role 符号在语句中的角色。 / Symbol role within the statement. -->
+    ///
+    /// # Errors
+    ///
+    /// 候选符号无效或当前覆盖层中不存在时，返回名称解析诊断。 / Returns a name-resolution diagnostic when the candidate symbol is invalid or absent from the current overlay.
+    ///
+    /// <!-- @return 领域符号或名称解析诊断。 / Domain symbol or a name-resolution diagnostic. -->
     fn resolve(&self, symbol: &Spanned<String>, role: &str) -> Result<Symbol> {
         let checked = checked_symbol(symbol)?;
         if self.overlay.contains_key(&checked) {
@@ -378,11 +529,25 @@ impl Compiler {
         .with_hint("create the node earlier in the program or correct the symbol spelling"))
     }
 
-    /// @brief 解析现有符号并检查节点种类。 / Resolve an existing symbol and check its node kind.
-    /// @param symbol 带位置的候选符号。 / Spanned candidate symbol.
-    /// @param expected 所需节点种类。 / Required node kind.
-    /// @param role 符号在语句中的角色。 / Symbol role within the statement.
-    /// @return 领域符号或解析/种类诊断。 / Domain symbol or a resolution/kind diagnostic.
+    /// 解析现有符号并检查节点种类。 / Resolve an existing symbol and check its node kind.
+    ///
+    /// <!-- @brief 解析现有符号并检查节点种类。 / Resolve an existing symbol and check its node kind. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `symbol`：带位置的候选符号。 / Spanned candidate symbol.
+    /// - `expected`：所需节点种类。 / Required node kind.
+    /// - `role`：符号在语句中的角色。 / Symbol role within the statement.
+    ///
+    /// <!-- @param symbol 带位置的候选符号。 / Spanned candidate symbol. -->
+    /// <!-- @param expected 所需节点种类。 / Required node kind. -->
+    /// <!-- @param role 符号在语句中的角色。 / Symbol role within the statement. -->
+    ///
+    /// # Errors
+    ///
+    /// 符号解析失败，或实际节点种类与命令要求不匹配时，返回诊断。 / Returns a diagnostic when symbol resolution fails or the actual node kind does not meet the command requirement.
+    ///
+    /// <!-- @return 领域符号或解析/种类诊断。 / Domain symbol or a resolution/kind diagnostic. -->
     fn resolve_kind(
         &self,
         symbol: &Spanned<String>,
@@ -396,11 +561,25 @@ impl Compiler {
     }
 }
 
-/// @brief 为结构化诊断附加相关实体的局部扩展。 / Local extension for attaching a related entity to a structured diagnostic.
+/// 为结构化诊断附加相关实体的局部扩展。 / Local extension for attaching a related entity to a structured diagnostic.
+///
+/// <!-- @brief 为结构化诊断附加相关实体的局部扩展。 / Local extension for attaching a related entity to a structured diagnostic. -->
 trait DiagnosticRelatedExt {
-    /// @brief 附加相关实体。 / Attach a related entity.
-    /// @param related 相关实体。 / Related entity.
-    /// @return 更新后的诊断。 / Updated diagnostic.
+    /// 附加相关实体。 / Attach a related entity.
+    ///
+    /// <!-- @brief 附加相关实体。 / Attach a related entity. -->
+    ///
+    /// # Arguments
+    ///
+    /// - `related`：相关实体。 / Related entity.
+    ///
+    /// <!-- @param related 相关实体。 / Related entity. -->
+    ///
+    /// # Returns
+    ///
+    /// 更新后的诊断。 / Updated diagnostic.
+    ///
+    /// <!-- @return 更新后的诊断。 / Updated diagnostic. -->
     fn with_related(self, related: RelatedDiagnostic) -> Self;
 }
 
@@ -411,9 +590,21 @@ impl DiagnosticRelatedExt for Diagnostic {
     }
 }
 
-/// @brief 验证并转换 AST 符号。 / Validate and convert an AST symbol.
-/// @param symbol 带源码位置的符号文本。 / Spanned symbol text.
-/// @return 领域符号或稳定诊断。 / Domain symbol or a stable diagnostic.
+/// 验证并转换 AST 符号。 / Validate and convert an AST symbol.
+///
+/// <!-- @brief 验证并转换 AST 符号。 / Validate and convert an AST symbol. -->
+///
+/// # Arguments
+///
+/// - `symbol`：带源码位置的符号文本。 / Spanned symbol text.
+///
+/// <!-- @param symbol 带源码位置的符号文本。 / Spanned symbol text. -->
+///
+/// # Errors
+///
+/// AST 文本违反领域符号约束时，返回稳定诊断。 / Returns a stable diagnostic when the AST text violates domain symbol constraints.
+///
+/// <!-- @return 领域符号或稳定诊断。 / Domain symbol or a stable diagnostic. -->
 fn checked_symbol(symbol: &Spanned<String>) -> Result<Symbol> {
     Symbol::new(symbol.value.clone()).map_err(|_| {
         error_at(
@@ -426,13 +617,29 @@ fn checked_symbol(symbol: &Spanned<String>) -> Result<Symbol> {
     })
 }
 
-/// @brief 检查节点种类与命令要求相符。 / Check that a node kind matches a command requirement.
-/// @param symbol 被检查符号。 / Checked symbol.
-/// @param actual 实际种类。 / Actual kind.
-/// @param expected 期望种类。 / Expected kind.
-/// @param span 符号位置。 / Symbol span.
-/// @param role 命令角色。 / Command role.
-/// @return 匹配时成功，否则返回稳定诊断。 / Success on match, otherwise a stable diagnostic.
+/// 检查节点种类与命令要求相符。 / Check that a node kind matches a command requirement.
+///
+/// <!-- @brief 检查节点种类与命令要求相符。 / Check that a node kind matches a command requirement. -->
+///
+/// # Arguments
+///
+/// - `symbol`：被检查符号。 / Checked symbol.
+/// - `actual`：实际种类。 / Actual kind.
+/// - `expected`：期望种类。 / Expected kind.
+/// - `span`：符号位置。 / Symbol span.
+/// - `role`：命令角色。 / Command role.
+///
+/// <!-- @param symbol 被检查符号。 / Checked symbol. -->
+/// <!-- @param actual 实际种类。 / Actual kind. -->
+/// <!-- @param expected 期望种类。 / Expected kind. -->
+/// <!-- @param span 符号位置。 / Symbol span. -->
+/// <!-- @param role 命令角色。 / Command role. -->
+///
+/// # Errors
+///
+/// 实际节点种类与期望种类不匹配时，返回稳定诊断。 / Returns a stable diagnostic when the actual node kind differs from the expected kind.
+///
+/// <!-- @return 匹配时成功，否则返回稳定诊断。 / Success on match, otherwise a stable diagnostic. -->
 fn ensure_kind(
     symbol: &Symbol,
     actual: NodeKind,
@@ -460,9 +667,21 @@ fn ensure_kind(
     )))
 }
 
-/// @brief 返回稳定的人类可读节点种类名。 / Return a stable human-readable node-kind name.
-/// @param kind 节点种类。 / Node kind.
-/// @return 小写英文名称。 / Lowercase English name.
+/// 返回稳定的人类可读节点种类名。 / Return a stable human-readable node-kind name.
+///
+/// <!-- @brief 返回稳定的人类可读节点种类名。 / Return a stable human-readable node-kind name. -->
+///
+/// # Arguments
+///
+/// - `kind`：节点种类。 / Node kind.
+///
+/// <!-- @param kind 节点种类。 / Node kind. -->
+///
+/// # Returns
+///
+/// 小写英文名称。 / Lowercase English name.
+///
+/// <!-- @return 小写英文名称。 / Lowercase English name. -->
 const fn kind_name(kind: NodeKind) -> &'static str {
     match kind {
         NodeKind::Fragment => "fragment",
@@ -470,9 +689,21 @@ const fn kind_name(kind: NodeKind) -> &'static str {
     }
 }
 
-/// @brief 使用迭代深度优先搜索查找一个确定性的环路径。 / Find one deterministic cycle path using iterative depth-first search.
-/// @param overlay 当前目录覆盖层。 / Current catalog overlay.
-/// @return 首尾重复的环路径，无环时为空。 / Cycle path with repeated first/last symbol, or none when acyclic.
+/// 使用迭代深度优先搜索查找一个确定性的环路径。 / Find one deterministic cycle path using iterative depth-first search.
+///
+/// <!-- @brief 使用迭代深度优先搜索查找一个确定性的环路径。 / Find one deterministic cycle path using iterative depth-first search. -->
+///
+/// # Arguments
+///
+/// - `overlay`：当前目录覆盖层。 / Current catalog overlay.
+///
+/// <!-- @param overlay 当前目录覆盖层。 / Current catalog overlay. -->
+///
+/// # Returns
+///
+/// 首尾重复的环路径，无环时为空。 / Cycle path with repeated first/last symbol, or none when acyclic.
+///
+/// <!-- @return 首尾重复的环路径，无环时为空。 / Cycle path with repeated first/last symbol, or none when acyclic. -->
 fn find_cycle(overlay: &BTreeMap<Symbol, OverlayNode>) -> Option<Vec<Symbol>> {
     #[derive(Clone, Copy, Eq, PartialEq)]
     enum Color {
@@ -525,11 +756,25 @@ fn find_cycle(overlay: &BTreeMap<Symbol, OverlayNode>) -> Option<Vec<Symbol>> {
     None
 }
 
-/// @brief 在计划执行前一次性验证聚合效果。 / Validate aggregate effects once before planned execution.
-/// @param required 程序所需效果的并集。 / Union of effects required by the program.
-/// @param policy 调用策略。 / Invocation policy.
-/// @param span 整个程序的位置。 / Whole-program span.
-/// @return 能力足够时成功，否则返回缺失能力诊断。 / Success when capabilities suffice, otherwise a missing-capability diagnostic.
+/// 在计划执行前一次性验证聚合效果。 / Validate aggregate effects once before planned execution.
+///
+/// <!-- @brief 在计划执行前一次性验证聚合效果。 / Validate aggregate effects once before planned execution. -->
+///
+/// # Arguments
+///
+/// - `required`：程序所需效果的并集。 / Union of effects required by the program.
+/// - `policy`：调用策略。 / Invocation policy.
+/// - `span`：整个程序的位置。 / Whole-program span.
+///
+/// <!-- @param required 程序所需效果的并集。 / Union of effects required by the program. -->
+/// <!-- @param policy 调用策略。 / Invocation policy. -->
+/// <!-- @param span 整个程序的位置。 / Whole-program span. -->
+///
+/// # Errors
+///
+/// 调用策略未授予程序需要的全部外部效果时，返回缺失能力诊断。 / Returns a missing-capability diagnostic when the invocation policy does not grant every external effect required by the program.
+///
+/// <!-- @return 能力足够时成功，否则返回缺失能力诊断。 / Success when capabilities suffice, otherwise a missing-capability diagnostic. -->
 fn validate_capabilities(required: Effects, policy: InvocationPolicy, span: Span) -> Result<()> {
     let missing = required - policy.allowed_effects;
     if missing.is_empty() {
@@ -548,9 +793,21 @@ fn validate_capabilities(required: Effects, policy: InvocationPolicy, span: Span
     .with_hint("use an invocation mode or policy that explicitly permits every listed effect"))
 }
 
-/// @brief 将效果位转换为确定顺序的名称。 / Convert effect bits to deterministically ordered names.
-/// @param effects 效果集合。 / Effect set.
-/// @return 稳定顺序名称。 / Names in stable order.
+/// 将效果位转换为确定顺序的名称。 / Convert effect bits to deterministically ordered names.
+///
+/// <!-- @brief 将效果位转换为确定顺序的名称。 / Convert effect bits to deterministically ordered names. -->
+///
+/// # Arguments
+///
+/// - `effects`：效果集合。 / Effect set.
+///
+/// <!-- @param effects 效果集合。 / Effect set. -->
+///
+/// # Returns
+///
+/// 稳定顺序名称。 / Names in stable order.
+///
+/// <!-- @return 稳定顺序名称。 / Names in stable order. -->
 fn effect_names(effects: Effects) -> Vec<&'static str> {
     [
         (Effects::READ_STORE, "read_store"),
@@ -564,9 +821,21 @@ fn effect_names(effects: Effects) -> Vec<&'static str> {
     .collect()
 }
 
-/// @brief 映射列表过滤器到应用 IR。 / Map a list filter to application IR.
-/// @param filter AST 过滤器。 / AST filter.
-/// @return IR 过滤器。 / IR filter.
+/// 映射列表过滤器到应用 IR。 / Map a list filter to application IR.
+///
+/// <!-- @brief 映射列表过滤器到应用 IR。 / Map a list filter to application IR. -->
+///
+/// # Arguments
+///
+/// - `filter`：AST 过滤器。 / AST filter.
+///
+/// <!-- @param filter AST 过滤器。 / AST filter. -->
+///
+/// # Returns
+///
+/// IR 过滤器。 / IR filter.
+///
+/// <!-- @return IR 过滤器。 / IR filter. -->
 const fn map_list_filter(filter: ListFilter) -> NodeFilter {
     match filter {
         ListFilter::All => NodeFilter::All,
@@ -575,9 +844,21 @@ const fn map_list_filter(filter: ListFilter) -> NodeFilter {
     }
 }
 
-/// @brief 映射搜索字段到领域枚举。 / Map a search field to the domain enum.
-/// @param field AST 搜索字段。 / AST search field.
-/// @return 领域搜索字段。 / Domain search field.
+/// 映射搜索字段到领域枚举。 / Map a search field to the domain enum.
+///
+/// <!-- @brief 映射搜索字段到领域枚举。 / Map a search field to the domain enum. -->
+///
+/// # Arguments
+///
+/// - `field`：AST 搜索字段。 / AST search field.
+///
+/// <!-- @param field AST 搜索字段。 / AST search field. -->
+///
+/// # Returns
+///
+/// 领域搜索字段。 / Domain search field.
+///
+/// <!-- @return 领域搜索字段。 / Domain search field. -->
 const fn map_search_field(field: AstSearchField) -> DomainSearchField {
     match field {
         AstSearchField::Title => DomainSearchField::Title,
@@ -586,12 +867,27 @@ const fn map_search_field(field: AstSearchField) -> DomainSearchField {
     }
 }
 
-/// @brief 构造带源码位置的稳定错误诊断。 / Construct a stable error diagnostic with source span.
-/// @param code 稳定错误码。 / Stable error code.
-/// @param category 诊断分类。 / Diagnostic category.
-/// @param message 用户可读消息。 / User-readable message.
-/// @param span AST 字节区间。 / AST byte range.
-/// @return 结构化诊断。 / Structured diagnostic.
+/// 构造带源码位置的稳定错误诊断。 / Construct a stable error diagnostic with source span.
+///
+/// <!-- @brief 构造带源码位置的稳定错误诊断。 / Construct a stable error diagnostic with source span. -->
+///
+/// # Arguments
+///
+/// - `code`：稳定错误码。 / Stable error code.
+/// - `category`：诊断分类。 / Diagnostic category.
+/// - `message`：用户可读消息。 / User-readable message.
+/// - `span`：AST 字节区间。 / AST byte range.
+///
+/// <!-- @param code 稳定错误码。 / Stable error code. -->
+/// <!-- @param category 诊断分类。 / Diagnostic category. -->
+/// <!-- @param message 用户可读消息。 / User-readable message. -->
+/// <!-- @param span AST 字节区间。 / AST byte range. -->
+///
+/// # Returns
+///
+/// 结构化诊断。 / Structured diagnostic.
+///
+/// <!-- @return 结构化诊断。 / Structured diagnostic. -->
 fn error_at(
     code: &'static str,
     category: DiagnosticCategory,

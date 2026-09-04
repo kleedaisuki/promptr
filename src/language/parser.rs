@@ -1,18 +1,43 @@
-//! 递归下降语法分析器。
+//! 递归下降语法分析器。 / Recursive-descent parser.
 
 use super::ast::*;
 use super::lexer::{LexError, Token, TokenKind, lex};
 
+/// 语法分析器的内部结果类型。 / Internal parser result type.
 type PResult<T> = Result<T, ParseFailure>;
 
+/// 区分可通过继续输入修复与确定无效的分析失败。 / Parser failure distinguishing continuable and definite errors.
 enum ParseFailure {
+    /// 还需要更多输入。 / More input is required.
     Incomplete(ParseDiagnostic),
+    /// 输入已确定无效。 / Input is definitely invalid.
     Invalid(ParseDiagnostic),
 }
 
-/// @brief 解析完整 DSL 程序 / Parses a complete DSL program.
-/// @param source UTF-8 DSL 源码 / UTF-8 DSL source.
-/// @return 完整、待续或无效结果 / Complete, incomplete, or invalid outcome.
+/// 解析完整 DSL 程序 / Parses a complete DSL program.
+///
+/// <!-- @brief 解析完整 DSL 程序 / Parses a complete DSL program. -->
+///
+/// # Arguments
+///
+/// - `source`：UTF-8 DSL 源码 / UTF-8 DSL source.
+///
+/// <!-- @param source UTF-8 DSL 源码 / UTF-8 DSL source. -->
+///
+/// # Returns
+///
+/// 完整、待续或无效结果 / Complete, incomplete, or invalid outcome.
+///
+/// <!-- @return 完整、待续或无效结果 / Complete, incomplete, or invalid outcome. -->
+///
+/// # Examples
+///
+/// ```
+/// use promptr::language::{ParseOutcome, parse};
+///
+/// let outcome = parse("fragment Greeting;");
+/// assert!(matches!(outcome, ParseOutcome::Complete(_)));
+/// ```
 pub fn parse(source: &str) -> ParseOutcome {
     let tokens = match lex(source) {
         Ok(tokens) => tokens,
@@ -26,12 +51,20 @@ pub fn parse(source: &str) -> ParseOutcome {
     }
 }
 
+/// 在词法单元流上维护游标的递归下降分析器。 / Cursor-based recursive-descent parser over a token stream.
 struct Parser {
+    /// 包含结束哨兵的词法单元。 / Tokens including the end-of-input sentinel.
     tokens: Vec<Token>,
+    /// 下一个待消费词法单元的索引。 / Index of the next token to consume.
     cursor: usize,
 }
 
 impl Parser {
+    /// 分析整个程序并要求消费所有语句。 / Parses a whole program and consumes every statement.
+    ///
+    /// # Errors
+    ///
+    /// 任一语句不完整或无效时返回对应的 [`ParseFailure`]。 / Returns the corresponding [`ParseFailure`] when any statement is incomplete or invalid.
     fn program(&mut self, source_len: usize) -> PResult<Program> {
         let mut statements = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
@@ -43,6 +76,11 @@ impl Parser {
         })
     }
 
+    /// 分析一条语句并保留完整源码区间。 / Parses one statement and preserves its full source span.
+    ///
+    /// # Errors
+    ///
+    /// 语句缺失词法单元或不符合 DSL 语法时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when tokens are missing or violate the DSL grammar.
     fn statement(&mut self) -> PResult<Spanned<Statement>> {
         let start = self.peek().span.start;
         let leading = self.expect_ident("语句或提示词名称")?;
@@ -95,6 +133,11 @@ impl Parser {
         Ok(Spanned::new(statement, Span::new(start, semi.span.end)))
     }
 
+    /// 分析提示词的非空子符号列表。 / Parses a prompt's non-empty child-symbol list.
+    ///
+    /// # Errors
+    ///
+    /// 列表为空、未闭合或子符号无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] for an empty, unterminated, or invalid child list.
     fn prompt(&mut self, symbol: Spanned<String>) -> PResult<Statement> {
         self.expect_punct(TokenKind::LBracket, "`[`")?;
         if self.consume_punct(&TokenKind::RBracket) {
@@ -112,6 +155,11 @@ impl Parser {
         Ok(Statement::Prompt { symbol, children })
     }
 
+    /// 分析 `List` 的可选节点类型过滤器。 / Parses the optional node-kind filter of `List`.
+    ///
+    /// # Errors
+    ///
+    /// 过滤器不是受支持的关键字时返回 [`ParseFailure::Invalid`]。 / Returns [`ParseFailure::Invalid`] for an unsupported filter keyword.
     fn list_filter(&mut self) -> PResult<ListFilter> {
         if self.check_punct(&TokenKind::Semicolon) {
             return Ok(ListFilter::All);
@@ -130,12 +178,22 @@ impl Parser {
         }
     }
 
+    /// 分析全局 `Search` 语句。 / Parses a global `Search` statement.
+    ///
+    /// # Errors
+    ///
+    /// 查询字符串或字段选项缺失、无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when the query string or field option is missing or invalid.
     fn search(&mut self) -> PResult<Statement> {
         let query = self.expect_string("搜索字符串")?;
         let field = self.optional_field()?;
         Ok(Statement::Search { query, field })
     }
 
+    /// 分析限定提示词范围的 `Find` 语句。 / Parses a prompt-scoped `Find` statement.
+    ///
+    /// # Errors
+    ///
+    /// 查询、`in`、提示词符号或字段选项缺失、无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when the query, `in`, prompt symbol, or field option is missing or invalid.
     fn find(&mut self) -> PResult<Statement> {
         let query = self.expect_string("搜索字符串")?;
         self.expect_keyword("ON")?;
@@ -148,6 +206,11 @@ impl Parser {
         })
     }
 
+    /// 分析可选的 `in title|content|mixed` 字段选择。 / Parses an optional `in title|content|mixed` field selection.
+    ///
+    /// # Errors
+    ///
+    /// `in` 之后缺少或包含未知字段名时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when `in` is followed by a missing or unknown field name.
     fn optional_field(&mut self) -> PResult<Option<SearchField>> {
         if self.check_punct(&TokenKind::Semicolon) {
             return Ok(None);
@@ -169,6 +232,11 @@ impl Parser {
         }
     }
 
+    /// 分析描述或标签的完整元数据替换。 / Parses a complete description or tag metadata replacement.
+    ///
+    /// # Errors
+    ///
+    /// 目标符号、元数据键或值无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when the target symbol, metadata key, or value is invalid.
     fn metadata(&mut self) -> PResult<Statement> {
         let symbol = self.expect_symbol("元数据节点名称")?;
         let kind = self.expect_ident("DESCRIPTION 或 TAGS")?;
@@ -186,6 +254,11 @@ impl Parser {
         Ok(Statement::Metadata { symbol, value })
     }
 
+    /// 分析可为空的逗号分隔字符串列表。 / Parses a possibly empty comma-separated string list.
+    ///
+    /// # Errors
+    ///
+    /// 字符串或标点缺失、无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] for missing or invalid strings or punctuation.
     fn string_list(&mut self) -> PResult<Vec<Spanned<String>>> {
         self.expect_punct(TokenKind::LBracket, "`[`")?;
         let mut values = Vec::new();
@@ -200,10 +273,20 @@ impl Parser {
         Ok(values)
     }
 
+    /// 消费一个符号标识符。 / Consumes one symbol identifier.
+    ///
+    /// # Errors
+    ///
+    /// 下一词法单元不是标识符或符号格式无效时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when the next token is not an identifier or is not a valid symbol.
     fn expect_symbol(&mut self, expected: &str) -> PResult<Spanned<String>> {
         self.expect_ident(expected)
     }
 
+    /// 消费一个标识符。 / Consumes one identifier.
+    ///
+    /// # Errors
+    ///
+    /// 输入结束时返回 [`ParseFailure::Incomplete`]，下一词法单元类型不匹配时返回 [`ParseFailure::Invalid`]。 / Returns [`ParseFailure::Incomplete`] at end of input and [`ParseFailure::Invalid`] for a mismatched token.
     fn expect_ident(&mut self, expected: &str) -> PResult<Spanned<String>> {
         let token = self.peek().clone();
         match token.kind {
@@ -220,6 +303,11 @@ impl Parser {
         }
     }
 
+    /// 消费一个字符串字面量。 / Consumes one string literal.
+    ///
+    /// # Errors
+    ///
+    /// 输入结束时返回 [`ParseFailure::Incomplete`]，下一词法单元类型不匹配时返回 [`ParseFailure::Invalid`]。 / Returns [`ParseFailure::Incomplete`] at end of input and [`ParseFailure::Invalid`] for a mismatched token.
     fn expect_string(&mut self, expected: &str) -> PResult<Spanned<String>> {
         let token = self.peek().clone();
         match token.kind {
@@ -236,6 +324,11 @@ impl Parser {
         }
     }
 
+    /// 以 ASCII 大小写不敏感方式消费指定关键字。 / Consumes a keyword using ASCII case-insensitive comparison.
+    ///
+    /// # Errors
+    ///
+    /// 关键字缺失或不匹配时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when the keyword is missing or mismatched.
     fn expect_keyword(&mut self, expected: &'static str) -> PResult<()> {
         let token = self.expect_ident(expected)?;
         if keyword(&token.value, expected) {
@@ -249,6 +342,11 @@ impl Parser {
         }
     }
 
+    /// 消费指定标点词法单元。 / Consumes the requested punctuation token.
+    ///
+    /// # Errors
+    ///
+    /// 标点缺失或不匹配时返回 [`ParseFailure`]。 / Returns [`ParseFailure`] when punctuation is missing or mismatched.
     fn expect_punct(&mut self, expected: TokenKind, label: &str) -> PResult<Token> {
         let token = self.peek().clone();
         if same_punct(&token.kind, &expected) {
@@ -265,6 +363,7 @@ impl Parser {
         }
     }
 
+    /// 如果下一词法单元是指定标点，则消费它。 / Consumes the next token when it is the requested punctuation.
     fn consume_punct(&mut self, expected: &TokenKind) -> bool {
         if self.check_punct(expected) {
             self.cursor += 1;
@@ -274,18 +373,22 @@ impl Parser {
         }
     }
 
+    /// 检查下一词法单元是否为指定标点。 / Tests whether the next token is the requested punctuation.
     fn check_punct(&self, expected: &TokenKind) -> bool {
         same_punct(&self.peek().kind, expected)
     }
 
+    /// 查看下一词法单元而不消费。 / Peeks at the next token without consuming it.
     fn peek(&self) -> &Token {
         &self.tokens[self.cursor]
     }
 
+    /// 返回最近消费的词法单元。 / Returns the most recently consumed token.
     fn previous(&self) -> &Token {
         &self.tokens[self.cursor - 1]
     }
 
+    /// 为当前输入结束位置构造待续诊断。 / Builds a continuation diagnostic at the current end-of-input position.
     fn incomplete(&self, expected: &str) -> ParseFailure {
         ParseFailure::Incomplete(ParseDiagnostic {
             code: DiagnosticCode::UnexpectedToken,
@@ -294,6 +397,7 @@ impl Parser {
         })
     }
 
+    /// 为当前词法单元构造确定无效的诊断。 / Builds a definite-invalid diagnostic for the current token.
     fn invalid(
         &self,
         code: DiagnosticCode,
@@ -308,10 +412,12 @@ impl Parser {
     }
 }
 
+/// 以 ASCII 大小写不敏感方式比较关键字。 / Compares keywords using ASCII case-insensitive matching.
 fn keyword(actual: &str, expected: &str) -> bool {
     actual.eq_ignore_ascii_case(expected)
 }
 
+/// 比较两个词法单元类别是否表示同一标点。 / Tests whether two token kinds represent the same punctuation.
 fn same_punct(actual: &TokenKind, expected: &TokenKind) -> bool {
     matches!(
         (actual, expected),

@@ -14,28 +14,49 @@ use crate::{
 use nucleo_matcher::{Config as MatcherConfig, Matcher, Utf32Str};
 use std::collections::BTreeMap;
 
-/// @brief 单次求值固定的搜索配置。 / Search configuration fixed for one evaluation.
+/// 单次求值固定的搜索配置。 / Search configuration fixed for one evaluation.
+///
+/// <!-- @brief 单次求值固定的搜索配置。 / Search configuration fixed for one evaluation. -->
 #[derive(Clone, Copy)]
 struct SearchSettings {
-    /// @brief DSL 省略 FROM 时采用的字段。 / Field used when DSL omits FROM.
+    /// DSL 省略 FROM 时采用的字段。 / Field used when DSL omits FROM.
+    ///
+    /// <!-- @brief DSL 省略 FROM 时采用的字段。 / Field used when DSL omits FROM. -->
     default_field: SearchField,
-    /// @brief 本次求值采用的匹配算法。 / Matching algorithm used by this evaluation.
+    /// 本次求值采用的匹配算法。 / Matching algorithm used by this evaluation.
+    ///
+    /// <!-- @brief 本次求值采用的匹配算法。 / Matching algorithm used by this evaluation. -->
     matcher: SearchMatcher,
 }
 
-/// @brief 运行时支持的搜索匹配算法。 / Search matching algorithms supported by the runtime.
+/// 运行时支持的搜索匹配算法。 / Search matching algorithms supported by the runtime.
+///
+/// <!-- @brief 运行时支持的搜索匹配算法。 / Search matching algorithms supported by the runtime. -->
 #[derive(Clone, Copy)]
 enum SearchMatcher {
-    /// @brief Nucleo 模糊匹配。 / Nucleo fuzzy matching.
+    /// Nucleo 模糊匹配。 / Nucleo fuzzy matching.
+    ///
+    /// <!-- @brief Nucleo 模糊匹配。 / Nucleo fuzzy matching. -->
     Fuzzy,
-    /// @brief 大小写敏感的子串匹配。 / Case-sensitive substring matching.
+    /// 大小写敏感的子串匹配。 / Case-sensitive substring matching.
+    ///
+    /// <!-- @brief 大小写敏感的子串匹配。 / Case-sensitive substring matching. -->
     Exact,
 }
 
 impl SearchSettings {
-    /// @brief 从已验证配置构造运行时设置。 / Build runtime settings from validated configuration.
-    /// @param config 已验证搜索配置。 / Validated search configuration.
-    /// @return 领域字段与匹配器的稳定映射。 / Stable mapping to domain field and matcher.
+    /// 从已验证配置构造运行时设置。 / Build runtime settings from validated configuration.
+    ///
+    /// <!-- @brief 从已验证配置构造运行时设置。 / Build runtime settings from validated configuration. -->
+    ///
+    /// # Arguments
+    /// - `config`: 已验证搜索配置。 / Validated search configuration.
+    /// <!-- @param config 已验证搜索配置。 / Validated search configuration. -->
+    ///
+    /// # Returns
+    /// 领域字段与匹配器的稳定映射。 / Stable mapping to domain field and matcher.
+    ///
+    /// <!-- @return 领域字段与匹配器的稳定映射。 / Stable mapping to domain field and matcher. -->
     const fn from_config(config: &crate::infrastructure::config::SearchConfig) -> Self {
         use crate::infrastructure::config::{SearchField as Field, SearchMatcher as Matcher};
         let default_field = match config.field {
@@ -54,59 +75,110 @@ impl SearchSettings {
     }
 }
 
-/// @brief 单次求值共享的 XML 常驻内存预算。 / XML resident-memory budget shared by one evaluation.
+/// 单次求值共享的 XML 常驻内存预算。 / XML resident-memory budget shared by one evaluation.
+///
+/// <!-- @brief 单次求值共享的 XML 常驻内存预算。 / XML resident-memory budget shared by one evaluation. -->
 struct XmlMemoryBudget {
-    /// @brief 尚可常驻内存的 XML 字节数。 / XML bytes still allowed to remain resident.
+    /// 尚可常驻内存的 XML 字节数。 / XML bytes still allowed to remain resident.
+    ///
+    /// <!-- @brief 尚可常驻内存的 XML 字节数。 / XML bytes still allowed to remain resident. -->
     remaining: usize,
 }
 
 impl XmlMemoryBudget {
-    /// @brief 创建默认的 16 MiB 聚合预算。 / Create the default aggregate 16 MiB budget.
-    /// @return 空预算计数器。 / Empty budget counter.
+    /// 创建默认的 16 MiB 聚合预算。 / Create the default aggregate 16 MiB budget.
+    ///
+    /// <!-- @brief 创建默认的 16 MiB 聚合预算。 / Create the default aggregate 16 MiB budget. -->
+    ///
+    /// # Returns
+    /// 空预算计数器。 / Empty budget counter.
+    ///
+    /// <!-- @return 空预算计数器。 / Empty budget counter. -->
     const fn new() -> Self {
         Self {
             remaining: crate::application::value::XML_MEMORY_LIMIT,
         }
     }
 
-    /// @brief 为下一个 XML 值创建受剩余额度约束的写入器。 / Create a writer constrained by the remaining allowance.
-    /// @return 不会令该次求值总常驻 XML 超额的写入器。 / Writer that cannot exceed this evaluation's resident XML allowance.
+    /// 为下一个 XML 值创建受剩余额度约束的写入器。 / Create a writer constrained by the remaining allowance.
+    ///
+    /// <!-- @brief 为下一个 XML 值创建受剩余额度约束的写入器。 / Create a writer constrained by the remaining allowance. -->
+    ///
+    /// # Returns
+    /// 不会令该次求值总常驻 XML 超额的写入器。 / Writer that cannot exceed this evaluation's resident XML allowance.
+    ///
+    /// <!-- @return 不会令该次求值总常驻 XML 超额的写入器。 / Writer that cannot exceed this evaluation's resident XML allowance. -->
     fn writer(&self) -> SpillWriter {
         SpillWriter::with_threshold(self.remaining)
     }
 
-    /// @brief 记账一个完成的 XML 值。 / Account for one completed XML value.
-    /// @param xml 已完成、即将进入返回值的 XML。 / Completed XML about to enter returned values.
+    /// 记账一个完成的 XML 值。 / Account for one completed XML value.
+    ///
+    /// <!-- @brief 记账一个完成的 XML 值。 / Account for one completed XML value. -->
+    ///
+    /// # Arguments
+    /// - `xml`: 已完成、即将进入返回值的 XML。 / Completed XML about to enter returned values.
+    /// <!-- @param xml 已完成、即将进入返回值的 XML。 / Completed XML about to enter returned values. -->
     fn account(&mut self, xml: &crate::application::CanonicalXml) {
         self.remaining = self.remaining.saturating_sub(xml.resident_len());
     }
 }
 
 #[derive(Clone)]
-/// @brief 已准备正文及其锁外身份。 / Prepared body and its identity captured outside the writer lock.
+/// 已准备正文及其锁外身份。 / Prepared body and its identity captured outside the writer lock.
+///
+/// <!-- @brief 已准备正文及其锁外身份。 / Prepared body and its identity captured outside the writer lock. -->
 struct PreparedFragment {
-    /// @brief 该操作在源码位置上的目标符号。 / Target symbol at this operation's source position.
+    /// 该操作在源码位置上的目标符号。 / Target symbol at this operation's source position.
+    ///
+    /// <!-- @brief 该操作在源码位置上的目标符号。 / Target symbol at this operation's source position. -->
     target: Symbol,
-    /// @brief 编辑开始时的稳定节点身份。 / Stable node identity at edit start.
+    /// 编辑开始时的稳定节点身份。 / Stable node identity at edit start.
+    ///
+    /// <!-- @brief 编辑开始时的稳定节点身份。 / Stable node identity at edit start. -->
     edit_target: EditTarget,
-    /// @brief 已验证正文。 / Validated body.
+    /// 已验证正文。 / Validated body.
+    ///
+    /// <!-- @brief 已验证正文。 / Validated body. -->
     text: XmlText,
 }
 
 #[derive(Clone)]
-/// @brief 准备阶段的顺序片段覆盖项。 / Sequential fragment-overlay entry during preparation.
+/// 准备阶段的顺序片段覆盖项。 / Sequential fragment-overlay entry during preparation.
+///
+/// <!-- @brief 准备阶段的顺序片段覆盖项。 / Sequential fragment-overlay entry during preparation. -->
 struct StagedFragment {
-    /// @brief 首次持久化来源身份。 / Identity of the original durable source.
+    /// 首次持久化来源身份。 / Identity of the original durable source.
+    ///
+    /// <!-- @brief 首次持久化来源身份。 / Identity of the original durable source. -->
     target: EditTarget,
-    /// @brief 前序编辑产生的当前草稿。 / Current draft produced by preceding edits.
+    /// 前序编辑产生的当前草稿。 / Current draft produced by preceding edits.
+    ///
+    /// <!-- @brief 前序编辑产生的当前草稿。 / Current draft produced by preceding edits. -->
     text: String,
 }
 
-/// @brief 仅解析并按当前快照检查源码。 / Parse and check source against the current snapshot only.
-/// @param app 应用门面。 / Application facade.
-/// @param source DSL 源码。 / DSL source.
-/// @param policy 调用能力策略。 / Invocation capability policy.
-/// @return 已检查程序。 / Checked program.
+/// 仅解析并按当前快照检查源码。 / Parse and check source against the current snapshot only.
+///
+/// <!-- @brief 仅解析并按当前快照检查源码。 / Parse and check source against the current snapshot only. -->
+///
+/// # Arguments
+/// - `app`: 应用门面。 / Application facade.
+/// <!-- @param app 应用门面。 / Application facade. -->
+/// - `source`: DSL 源码。 / DSL source.
+/// <!-- @param source DSL 源码。 / DSL source. -->
+/// - `policy`: 调用能力策略。 / Invocation capability policy.
+/// <!-- @param policy 调用能力策略。 / Invocation capability policy. -->
+///
+/// # Returns
+/// 已检查程序。 / Checked program.
+///
+/// <!-- @return 已检查程序。 / Checked program. -->
+///
+/// # Errors
+/// 当源码不完整或无效、快照读取失败、语义检查失败，或策略拒绝所需能力时返回诊断。 /
+/// Returns a diagnostic when the source is incomplete or invalid, snapshot loading fails, semantic
+/// validation fails, or policy denies a required capability.
 pub(crate) fn check(
     app: &Promptr,
     source: &str,
@@ -117,13 +189,31 @@ pub(crate) fn check(
     crate::language::compile(&ast, &snapshot, policy)
 }
 
-/// @brief 通过共享运行时执行一段源码。 / Execute source through the shared runtime.
-/// @param app 应用门面。 / Application facade.
-/// @param source DSL 源码。 / DSL source.
-/// @param policy 调用能力策略。 / Invocation capability policy.
-/// @param provider 可选交互文本提供者。 / Optional interactive text provider.
-/// @param preconditions 调用方观察到的节点修订前置条件。 / Node revision preconditions observed by the caller.
-/// @return 提交后可发布的类型化值。 / Typed values publishable after commit.
+/// 通过共享运行时执行一段源码。 / Execute source through the shared runtime.
+///
+/// <!-- @brief 通过共享运行时执行一段源码。 / Execute source through the shared runtime. -->
+///
+/// # Arguments
+/// - `app`: 应用门面。 / Application facade.
+/// <!-- @param app 应用门面。 / Application facade. -->
+/// - `source`: DSL 源码。 / DSL source.
+/// <!-- @param source DSL 源码。 / DSL source. -->
+/// - `policy`: 调用能力策略。 / Invocation capability policy.
+/// <!-- @param policy 调用能力策略。 / Invocation capability policy. -->
+/// - `provider`: 可选交互文本提供者。 / Optional interactive text provider.
+/// <!-- @param provider 可选交互文本提供者。 / Optional interactive text provider. -->
+/// - `preconditions`: 调用方观察到的节点修订前置条件。 / Node revision preconditions observed by the caller.
+/// <!-- @param preconditions 调用方观察到的节点修订前置条件。 / Node revision preconditions observed by the caller. -->
+///
+/// # Returns
+/// 提交后可发布的类型化值。 / Typed values publishable after commit.
+///
+/// <!-- @return 提交后可发布的类型化值。 / Typed values publishable after commit. -->
+///
+/// # Errors
+/// 当解析、快照读取、前置条件、编译、文本准备、事务或解释任一阶段失败时返回诊断。 /
+/// Returns a diagnostic when parsing, snapshot loading, precondition validation, compilation, text
+/// preparation, transaction handling, or interpretation fails.
 pub(crate) fn eval(
     app: &mut Promptr,
     source: &str,
@@ -152,10 +242,25 @@ pub(crate) fn eval(
     app.database.write_transaction(&mut operation)
 }
 
-/// @brief 在单一一致快照上验证全部节点前置条件。 / Validate all node preconditions against one consistent snapshot.
-/// @param snapshot 读操作的一致快照或写事务中的权威快照。 / Consistent read snapshot or authoritative snapshot inside a write transaction.
-/// @param preconditions 调用方观察到的条件。 / Conditions observed by the caller.
-/// @return 全部匹配时成功，否则返回稳定的 `E_CONFLICT`。 / Success when all match, otherwise stable `E_CONFLICT`.
+/// 在单一一致快照上验证全部节点前置条件。 / Validate all node preconditions against one consistent snapshot.
+///
+/// <!-- @brief 在单一一致快照上验证全部节点前置条件。 / Validate all node preconditions against one consistent snapshot. -->
+///
+/// # Arguments
+/// - `snapshot`: 读操作的一致快照或写事务中的权威快照。 / Consistent read snapshot or authoritative snapshot inside a write transaction.
+/// <!-- @param snapshot 读操作的一致快照或写事务中的权威快照。 / Consistent read snapshot or authoritative snapshot inside a write transaction. -->
+/// - `preconditions`: 调用方观察到的条件。 / Conditions observed by the caller.
+/// <!-- @param preconditions 调用方观察到的条件。 / Conditions observed by the caller. -->
+///
+/// # Returns
+/// 全部匹配时成功，否则返回稳定的 `E_CONFLICT`。 / Success when all match, otherwise stable `E_CONFLICT`.
+///
+/// <!-- @return 全部匹配时成功，否则返回稳定的 `E_CONFLICT`。 / Success when all match, otherwise stable `E_CONFLICT`. -->
+///
+/// # Errors
+/// 任一符号不再绑定到调用方观察到的节点标识和修订时返回 `E_CONFLICT`。 /
+/// Returns `E_CONFLICT` when any symbol no longer maps to the node identity and revision observed by
+/// the caller.
 fn validate_preconditions(
     snapshot: &CatalogSnapshot,
     preconditions: &[NodePrecondition],
@@ -191,7 +296,14 @@ fn validate_preconditions(
     Ok(())
 }
 
-/// @brief 把解析器状态稳定映射为公共诊断。 / Map parser states to stable public diagnostics.
+/// 把解析器状态稳定映射为公共诊断。 / Map parser states to stable public diagnostics.
+///
+/// <!-- @brief 把解析器状态稳定映射为公共诊断。 / Map parser states to stable public diagnostics. -->
+///
+/// # Errors
+/// 当源码不完整或语法无效时返回带源码区间的稳定诊断。 /
+/// Returns a stable diagnostic with a source span when the source is incomplete or syntactically
+/// invalid.
 fn parse_complete(source: &str) -> Result<Program> {
     let convert = |code: String, parsed: crate::language::ParseDiagnostic| {
         Diagnostic::error(code, DiagnosticCategory::Syntax, parsed.message)
@@ -209,8 +321,19 @@ fn parse_complete(source: &str) -> Result<Program> {
     }
 }
 
-/// @brief 写锁外准备所有片段文本。 / Prepare all fragment text outside the writer lock.
-/// @return `None` 表示用户取消整个调用。 / `None` means the user cancelled the whole invocation.
+/// 写锁外准备所有片段文本。 / Prepare all fragment text outside the writer lock.
+///
+/// <!-- @brief 写锁外准备所有片段文本。 / Prepare all fragment text outside the writer lock. -->
+///
+/// # Returns
+/// `None` 表示用户取消整个调用。 / `None` means the user cancelled the whole invocation.
+///
+/// <!-- @return `None` 表示用户取消整个调用。 / `None` means the user cancelled the whole invocation. -->
+///
+/// # Errors
+/// 当缺少文本提供者、编辑器失败或篡改编辑身份，或返回正文不是有效 XML 文本时返回诊断。 /
+/// Returns a diagnostic when no text provider is available, the editor fails or changes edit
+/// identity, or the returned body is not valid XML text.
 fn prepare_fragments(
     program: &CheckedProgram,
     snapshot: &CatalogSnapshot,
@@ -313,7 +436,14 @@ fn prepare_fragments(
     Ok(Some(prepared))
 }
 
-/// @brief 将锁外准备的正文注入权威重编译结果。 / Inject prepared bodies into the authoritative recompilation.
+/// 将锁外准备的正文注入权威重编译结果。 / Inject prepared bodies into the authoritative recompilation.
+///
+/// <!-- @brief 将锁外准备的正文注入权威重编译结果。 / Inject prepared bodies into the authoritative recompilation. -->
+///
+/// # Errors
+/// 当准备结果与重编译程序不一致，或编辑期间节点身份发生变化时返回诊断。 /
+/// Returns a diagnostic when prepared results do not match the recompiled program or a node identity
+/// changed during editing.
 fn inject_prepared(
     program: &mut CheckedProgram,
     prepared: &[PreparedFragment],
@@ -391,7 +521,14 @@ fn inject_prepared(
     Ok(())
 }
 
-/// @brief 在一个不可变快照上执行纯查询。 / Execute pure queries on one immutable snapshot.
+/// 在一个不可变快照上执行纯查询。 / Execute pure queries on one immutable snapshot.
+///
+/// <!-- @brief 在一个不可变快照上执行纯查询。 / Execute pure queries on one immutable snapshot. -->
+///
+/// # Errors
+/// 当任一查询违反目录不变量、引用未知节点，或 XML 渲染与落盘失败时返回诊断。 /
+/// Returns a diagnostic when any query violates catalog invariants, references an unknown node, or
+/// XML rendering or spilling fails.
 fn interpret_read_only(
     program: &CheckedProgram,
     snapshot: &CatalogSnapshot,
@@ -405,7 +542,14 @@ fn interpret_read_only(
         .collect()
 }
 
-/// @brief 在事务内按源码顺序执行并缓冲结果。 / Execute in source order and buffer results inside a transaction.
+/// 在事务内按源码顺序执行并缓冲结果。 / Execute in source order and buffer results inside a transaction.
+///
+/// <!-- @brief 在事务内按源码顺序执行并缓冲结果。 / Execute in source order and buffer results inside a transaction. -->
+///
+/// # Errors
+/// 当持久化操作、修订推进、事务内快照读取或查询解释失败时返回诊断。 /
+/// Returns a diagnostic when persistence, revision advancement, transactional snapshot loading, or
+/// query interpretation fails.
 fn interpret_transaction(
     program: &CheckedProgram,
     transaction: &mut dyn CatalogWrite,
@@ -431,9 +575,9 @@ fn interpret_transaction(
                 expected_revision,
             } => {
                 let current_revision = state.get(target).map(|entry| entry.0);
-                // The coordinator already compared the prepared base with the
-                // authoritative pre-mutation snapshot. Here the current revision
-                // may legitimately include earlier operations in this same script.
+                // 协调器已将准备基线与修改前权威快照比较；此处当前修订可合法包含同一脚本的前序操作。
+                // The coordinator already compared the prepared base with the authoritative
+                // pre-mutation snapshot; the current revision may include earlier script operations.
                 let _ = expected_revision;
                 transaction.upsert_fragment(
                     target,
@@ -499,7 +643,14 @@ fn interpret_transaction(
     Ok(values)
 }
 
-/// @brief 将节点状态推进一次领域修订。 / Advance node state by one domain revision.
+/// 将节点状态推进一次领域修订。 / Advance node state by one domain revision.
+///
+/// <!-- @brief 将节点状态推进一次领域修订。 / Advance node state by one domain revision. -->
+///
+/// # Errors
+/// 当现有修订溢出或无法构造新节点的初始修订时返回诊断。 /
+/// Returns a diagnostic when an existing revision overflows or a new node's initial revision cannot
+/// be constructed.
 fn advance_state(
     state: &mut BTreeMap<Symbol, (crate::domain::Revision, Metadata)>,
     target: &Symbol,
@@ -518,7 +669,13 @@ fn advance_state(
     Ok(())
 }
 
-/// @brief 推进现有节点并替换缓存元数据。 / Advance an existing node and replace cached metadata.
+/// 推进现有节点并替换缓存元数据。 / Advance an existing node and replace cached metadata.
+///
+/// <!-- @brief 推进现有节点并替换缓存元数据。 / Advance an existing node and replace cached metadata. -->
+///
+/// # Errors
+/// 当目标不在事务状态中或其修订溢出时返回诊断。 /
+/// Returns a diagnostic when the target is absent from transaction state or its revision overflows.
 fn advance_existing_state(
     state: &mut BTreeMap<Symbol, (crate::domain::Revision, Metadata)>,
     target: &Symbol,
@@ -532,7 +689,13 @@ fn advance_existing_state(
     Ok(())
 }
 
-/// @brief 计算下一修订并映射溢出。 / Compute the next revision and map overflow.
+/// 计算下一修订并映射溢出。 / Compute the next revision and map overflow.
+///
+/// <!-- @brief 计算下一修订并映射溢出。 / Compute the next revision and map overflow. -->
+///
+/// # Errors
+/// 当修订号已达到其表示上限时返回 `E_REVISION_OVERFLOW`。 /
+/// Returns `E_REVISION_OVERFLOW` when the revision has reached its representable maximum.
 fn next_revision(revision: crate::domain::Revision) -> Result<crate::domain::Revision> {
     revision.checked_next().ok_or_else(|| {
         Diagnostic::error(
@@ -543,7 +706,14 @@ fn next_revision(revision: crate::domain::Revision) -> Result<crate::domain::Rev
     })
 }
 
-/// @brief 解释一个无副作用操作。 / Interpret one side-effect-free operation.
+/// 解释一个无副作用操作。 / Interpret one side-effect-free operation.
+///
+/// <!-- @brief 解释一个无副作用操作。 / Interpret one side-effect-free operation. -->
+///
+/// # Errors
+/// 当操作不是查询、引用未知或错误种类的节点、目录含悬空引用，或 XML 渲染与落盘失败时返回诊断。 /
+/// Returns a diagnostic when the operation is not a query, references an unknown or wrong-kind node,
+/// the catalog contains dangling references, or XML rendering or spilling fails.
 fn interpret_query(
     op: &Op,
     snapshot: &CatalogSnapshot,
@@ -799,11 +969,17 @@ mod tests {
         before_transaction: Option<ConcurrentChange>,
     }
 
-    /// @brief 模拟另一连接在建议快照之后提交的变化。 / Simulated change committed by another connection after the advisory snapshot.
+    /// 模拟另一连接在建议快照之后提交的变化。 / Simulated change committed by another connection after the advisory snapshot.
+    ///
+    /// <!-- @brief 模拟另一连接在建议快照之后提交的变化。 / Simulated change committed by another connection after the advisory snapshot. -->
     enum ConcurrentChange {
-        /// @brief 推进指定节点修订号。 / Advance the named node revision.
+        /// 推进指定节点修订号。 / Advance the named node revision.
+        ///
+        /// <!-- @brief 推进指定节点修订号。 / Advance the named node revision. -->
         Revise(Symbol),
-        /// @brief 改变指定节点的符号绑定。 / Change the named node's symbol binding.
+        /// 改变指定节点的符号绑定。 / Change the named node's symbol binding.
+        ///
+        /// <!-- @brief 改变指定节点的符号绑定。 / Change the named node's symbol binding. -->
         Rename(Symbol, Symbol),
     }
     struct FakeDatabase(Rc<RefCell<Shared>>);
@@ -991,7 +1167,9 @@ mod tests {
         }
     }
 
-    /// @brief 返回同一节点的旧修订身份。 / Return a stale revision identity for the same node.
+    /// 返回同一节点的旧修订身份。 / Return a stale revision identity for the same node.
+    ///
+    /// <!-- @brief 返回同一节点的旧修订身份。 / Return a stale revision identity for the same node. -->
     struct StaleIdentityProvider {
         revision: Revision,
     }
