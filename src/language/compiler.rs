@@ -327,7 +327,7 @@ impl Compiler {
                 children: resolved.clone(),
             },
         );
-        if let Some(path) = find_cycle(&self.overlay) {
+        if let Some(path) = find_cycle_through(&self.overlay, &target) {
             let printable = path
                 .iter()
                 .map(Symbol::as_str)
@@ -689,68 +689,90 @@ const fn kind_name(kind: NodeKind) -> &'static str {
     }
 }
 
-/// 使用迭代深度优先搜索查找一个确定性的环路径。 / Find one deterministic cycle path using iterative depth-first search.
+/// 查找经过指定节点的确定性环路径。 / Find a deterministic cycle path through one specified node.
 ///
-/// <!-- @brief 使用迭代深度优先搜索查找一个确定性的环路径。 / Find one deterministic cycle path using iterative depth-first search. -->
+/// <!-- @brief 查找经过指定节点的确定性环路径。 / Find a deterministic cycle path through one specified node. -->
 ///
 /// # Arguments
 ///
 /// - `overlay`：当前目录覆盖层。 / Current catalog overlay.
+/// - `target`：刚被替换出边的 Prompt。 / Prompt whose outgoing edges were just replaced.
 ///
 /// <!-- @param overlay 当前目录覆盖层。 / Current catalog overlay. -->
+/// <!-- @param target 刚被替换出边的 Prompt。 / Prompt whose outgoing edges were just replaced. -->
 ///
 /// # Returns
 ///
-/// 首尾重复的环路径，无环时为空。 / Cycle path with repeated first/last symbol, or none when acyclic.
+/// 以 `target` 开始和结束的环路径，无环时为空。 / Cycle path beginning and ending at `target`, or none when acyclic.
 ///
-/// <!-- @return 首尾重复的环路径，无环时为空。 / Cycle path with repeated first/last symbol, or none when acyclic. -->
-fn find_cycle(overlay: &BTreeMap<Symbol, OverlayNode>) -> Option<Vec<Symbol>> {
-    #[derive(Clone, Copy, Eq, PartialEq)]
-    enum Color {
-        White,
-        Gray,
-        Black,
-    }
+/// <!-- @return 以 target 开始和结束的环路径，无环时为空。 / Cycle path beginning and ending at target, or none when acyclic. -->
+///
+/// # Notes
+///
+/// 输入快照已通过无环性校验，重命名和删除也不会造环；因此替换 Prompt 后的任何新环必然经过
+/// `target`。迭代 DFS 只访问新子图，避免每条声明重新扫描整个目录，也不依赖调用栈深度。 /
+/// The input snapshot is already acyclic, and rename and delete cannot create cycles; therefore
+/// every cycle introduced by replacing a Prompt must pass through `target`. The iterative DFS
+/// visits only the new descendant subgraph, avoiding a whole-catalog scan per declaration and any
+/// dependence on call-stack depth.
+///
+/// <!-- @note 仅需搜索 target 的新子图，因为其他操作保持无环不变量。 / Only the target's new descendant subgraph must be searched because all other operations preserve the acyclic invariant. -->
+fn find_cycle_through(
+    overlay: &BTreeMap<Symbol, OverlayNode>,
+    target: &Symbol,
+) -> Option<Vec<Symbol>> {
+    find_cycle_through_observing(overlay, target, |_| {})
+}
 
-    let mut colors: BTreeMap<Symbol, Color> = overlay
-        .keys()
-        .cloned()
-        .map(|symbol| (symbol, Color::White))
-        .collect();
-    for start in overlay.keys() {
-        if colors[start] != Color::White {
+/// 执行可观测的局部环搜索。 / Run an observable localized cycle search.
+///
+/// <!-- @brief 执行可观测的局部环搜索。 / Run an observable localized cycle search. -->
+///
+/// `visit` 在每个节点首次入栈时调用，使测试能校验访问边界，而不依赖墙钟时间。 /
+/// `visit` is called when each node is first pushed, allowing tests to verify the traversal bound
+/// without relying on wall-clock timing.
+///
+/// <!-- @param overlay 当前目录覆盖层。 / Current catalog overlay. -->
+/// <!-- @param target 刚被替换出边的 Prompt。 / Prompt whose outgoing edges were just replaced. -->
+/// <!-- @param visit 节点首次入栈的观测回调。 / Observer called when a node is first pushed. -->
+/// <!-- @return 以 target 开始和结束的环路径，无环时为空。 / Cycle path beginning and ending at target, or none when acyclic. -->
+fn find_cycle_through_observing<F>(
+    overlay: &BTreeMap<Symbol, OverlayNode>,
+    target: &Symbol,
+    mut visit: F,
+) -> Option<Vec<Symbol>>
+where
+    F: FnMut(&Symbol),
+{
+    let mut visited = BTreeSet::from([target.clone()]);
+    let mut stack = vec![(target.clone(), 0usize)];
+    visit(target);
+
+    while let Some((symbol, next_child)) = stack.last() {
+        let child = overlay
+            .get(symbol)
+            .and_then(|node| node.children.get(*next_child))
+            .cloned();
+        let Some(child) = child else {
+            stack.pop();
             continue;
+        };
+        stack
+            .last_mut()
+            .expect("the active DFS frame must remain present")
+            .1 += 1;
+
+        if child == *target {
+            let mut path = stack
+                .iter()
+                .map(|(ancestor, _)| ancestor.clone())
+                .collect::<Vec<_>>();
+            path.push(target.clone());
+            return Some(path);
         }
-        colors.insert(start.clone(), Color::Gray);
-        let mut stack = vec![(start.clone(), 0usize)];
-        while let Some((symbol, next_child)) = stack.last_mut() {
-            let children = &overlay[symbol].children;
-            if *next_child == children.len() {
-                colors.insert(symbol.clone(), Color::Black);
-                stack.pop();
-                continue;
-            }
-            let child = children[*next_child].clone();
-            *next_child += 1;
-            match colors.get(&child).copied().unwrap_or(Color::White) {
-                Color::Black => {}
-                Color::White => {
-                    colors.insert(child.clone(), Color::Gray);
-                    stack.push((child, 0));
-                }
-                Color::Gray => {
-                    let cycle_start = stack
-                        .iter()
-                        .position(|(ancestor, _)| *ancestor == child)
-                        .unwrap_or(0);
-                    let mut path = stack[cycle_start..]
-                        .iter()
-                        .map(|(ancestor, _)| ancestor.clone())
-                        .collect::<Vec<_>>();
-                    path.push(child);
-                    return Some(path);
-                }
-            }
+        if visited.insert(child.clone()) {
+            visit(&child);
+            stack.push((child, 0));
         }
     }
     None
@@ -1034,6 +1056,36 @@ mod tests {
     }
 
     #[test]
+    fn replacement_reports_the_complete_indirect_cycle_from_its_target() {
+        let catalog = CatalogSnapshot::new([
+            fragment(1, "Leaf"),
+            prompt(2, "A", vec![id(1)]),
+            prompt(3, "C", vec![id(2)]),
+            prompt(4, "B", vec![id(3)]),
+        ])
+        .unwrap();
+        let source = program(vec![Statement::Prompt {
+            symbol: spanned("A"),
+            children: vec![spanned("B")],
+        }]);
+
+        let error = compile(&source, &catalog, InvocationPolicy::interactive()).unwrap_err();
+
+        assert_eq!(error.code, "E0105");
+        assert_eq!(
+            error.related[0].path.as_deref(),
+            Some(
+                &[
+                    "A".to_owned(),
+                    "B".to_owned(),
+                    "C".to_owned(),
+                    "A".to_owned(),
+                ][..]
+            )
+        );
+    }
+
+    #[test]
     fn direct_self_reference_is_reported_as_a_cycle() {
         let source = program(vec![Statement::Prompt {
             symbol: spanned("Loop"),
@@ -1050,6 +1102,138 @@ mod tests {
             error.related[0].path.as_deref(),
             Some(&["Loop".to_owned(), "Loop".to_owned()][..])
         );
+    }
+
+    #[test]
+    fn localized_cycle_search_does_not_visit_unrelated_nodes() {
+        let mut overlay = (0..10_000)
+            .map(|index| {
+                (
+                    Symbol::new(format!("Unrelated{index}")).unwrap(),
+                    OverlayNode {
+                        kind: NodeKind::Fragment,
+                        children: Vec::new(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let leaf = Symbol::new("Leaf").unwrap();
+        let target = Symbol::new("Target").unwrap();
+        overlay.insert(
+            leaf.clone(),
+            OverlayNode {
+                kind: NodeKind::Fragment,
+                children: Vec::new(),
+            },
+        );
+        overlay.insert(
+            target.clone(),
+            OverlayNode {
+                kind: NodeKind::Prompt,
+                children: vec![leaf.clone()],
+            },
+        );
+        let mut visited = Vec::new();
+
+        let cycle = find_cycle_through_observing(&overlay, &target, |node| {
+            visited.push(node.clone());
+        });
+
+        assert!(cycle.is_none());
+        assert_eq!(visited, [target, leaf]);
+        assert_eq!(overlay.len(), 10_002);
+    }
+
+    #[test]
+    fn localized_cycle_search_visits_shared_and_duplicate_edges_once() {
+        let symbol = |value: &str| Symbol::new(value).unwrap();
+        let root = symbol("Root");
+        let a = symbol("A");
+        let b = symbol("B");
+        let shared = symbol("Shared");
+        let leaf = symbol("Leaf");
+        let overlay = BTreeMap::from([
+            (
+                root.clone(),
+                OverlayNode {
+                    kind: NodeKind::Prompt,
+                    children: vec![a.clone(), a.clone(), b.clone()],
+                },
+            ),
+            (
+                a.clone(),
+                OverlayNode {
+                    kind: NodeKind::Prompt,
+                    children: vec![shared.clone()],
+                },
+            ),
+            (
+                b.clone(),
+                OverlayNode {
+                    kind: NodeKind::Prompt,
+                    children: vec![shared.clone()],
+                },
+            ),
+            (
+                shared.clone(),
+                OverlayNode {
+                    kind: NodeKind::Prompt,
+                    children: vec![leaf.clone()],
+                },
+            ),
+            (
+                leaf.clone(),
+                OverlayNode {
+                    kind: NodeKind::Fragment,
+                    children: Vec::new(),
+                },
+            ),
+        ]);
+        let mut visited = Vec::new();
+
+        let cycle = find_cycle_through_observing(&overlay, &root, |node| {
+            visited.push(node.clone());
+        });
+
+        assert!(cycle.is_none());
+        assert_eq!(visited, [root, a, shared, leaf, b]);
+    }
+
+    #[test]
+    fn localized_cycle_search_handles_deep_graphs_iteratively() {
+        const DEPTH: usize = 20_000;
+
+        let root = Symbol::new("Root").unwrap();
+        let symbols = (0..DEPTH)
+            .map(|index| Symbol::new(format!("Node{index}")).unwrap())
+            .collect::<Vec<_>>();
+        let mut overlay = BTreeMap::new();
+        overlay.insert(
+            root.clone(),
+            OverlayNode {
+                kind: NodeKind::Prompt,
+                children: vec![symbols[0].clone()],
+            },
+        );
+        for (index, symbol) in symbols.iter().enumerate() {
+            let child = symbols
+                .get(index + 1)
+                .cloned()
+                .unwrap_or_else(|| root.clone());
+            overlay.insert(
+                symbol.clone(),
+                OverlayNode {
+                    kind: NodeKind::Prompt,
+                    children: vec![child],
+                },
+            );
+        }
+
+        let path = find_cycle_through(&overlay, &root).unwrap();
+
+        assert_eq!(path.len(), DEPTH + 2);
+        assert_eq!(path.first(), Some(&root));
+        assert_eq!(path.last(), Some(&root));
     }
 
     #[test]
