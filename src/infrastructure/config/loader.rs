@@ -797,7 +797,7 @@ fn config_values(config: &Config) -> BTreeMap<String, String> {
             .editor
             .external
             .as_ref()
-            .map(|argv| format!("{:?}", argv))
+            .map(|argv| format!("{argv:?}"))
             .unwrap_or_else(|| "null".into()),
     );
     values.insert(
