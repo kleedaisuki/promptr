@@ -2,10 +2,6 @@
 
 use std::{
     io,
-    sync::{
-        OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
     time::{Duration, Instant},
 };
 
@@ -66,27 +62,6 @@ pub enum RuntimeRequest {
     },
     /// 结束宿主事件循环。 / End the host event loop.
     Exit,
-}
-
-static INTERRUPTED: AtomicBool = AtomicBool::new(false);
-static SIGNAL_HANDLER: OnceLock<std::result::Result<(), String>> = OnceLock::new();
-
-fn install_signal_handler() -> Result<()> {
-    let installed = SIGNAL_HANDLER.get_or_init(|| {
-        ctrlc::set_handler(|| INTERRUPTED.store(true, Ordering::Release))
-            .map_err(|error| error.to_string())
-    });
-    installed
-        .as_ref()
-        .map_err(|cause| {
-            Diagnostic::error(
-                "E_TERMINAL_SIGNAL",
-                DiagnosticCategory::External,
-                "terminal signal handler installation failed",
-            )
-            .with_cause(cause.clone())
-        })
-        .copied()
 }
 
 /// 可替换的系统剪贴板边界。 / Replaceable system clipboard boundary.
@@ -265,16 +240,14 @@ impl<P: TextProvider> TextProvider for DraftSeedProvider<P> {
 ///
 /// # Errors
 ///
-/// 当信号处理器、终端生命周期、配置的编辑器或共享应用运行时失败时，返回结构化诊断。 /
-/// Returns a structured diagnostic when signal handling, terminal lifecycle, the configured editor,
-/// or the shared application runtime fails.
+/// 当终端生命周期、配置的编辑器或共享应用运行时失败时，返回结构化诊断。 /
+/// Returns a structured diagnostic when terminal lifecycle, the configured editor, or the shared
+/// application runtime fails.
 ///
 /// <!-- @brief 在当前终端运行同步 TUI。 / Run the synchronous TUI in the current terminal. -->
 /// <!-- @param app 已打开的共享应用门面。 / Open shared application facade. -->
 /// <!-- @return 正常退出或结构化终端诊断。 / Normal exit or structured terminal diagnostic. -->
 pub fn run(app: &mut Promptr) -> Result<()> {
-    install_signal_handler()?;
-    INTERRUPTED.store(false, Ordering::Release);
     let mouse = app.config().ui.mouse;
     let (theme, glyph_mode) = terminal_capabilities(app);
     let mut session = TerminalSession::start(CrosstermOps, mouse).map_err(terminal_error)?;
@@ -301,9 +274,6 @@ pub fn run(app: &mut Promptr) -> Result<()> {
     let mut last_change_check = Instant::now();
 
     while !model.should_quit {
-        if INTERRUPTED.load(Ordering::Acquire) {
-            break;
-        }
         let mut regions = Vec::new();
         terminal
             .draw(|frame| {
@@ -312,8 +282,9 @@ pub fn run(app: &mut Promptr) -> Result<()> {
             .map_err(terminal_error)?;
         mapper.set_regions(regions);
 
-        // 有界等待允许异步信号通过正常退出路径触发 RAII 恢复。
-        // Bounded waiting lets asynchronous signals trigger RAII restoration through normal exit.
+        // 有界等待让宿主定期检查外部数据变更，Ctrl+C 由普通键盘事件映射为退出操作。
+        // Bounded waiting lets the host poll external data changes; Ctrl+C is mapped to exit as an
+        // ordinary keyboard event.
         if !event::poll(Duration::from_millis(200)).map_err(terminal_error)? {
             if last_change_check.elapsed() >= Duration::from_secs(1) {
                 refresh_if_changed(app, &mut model)?;

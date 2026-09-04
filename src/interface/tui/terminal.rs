@@ -1,13 +1,6 @@
 //! Crossterm 终端生命周期与幂等恢复。 / Crossterm terminal lifecycle and idempotent restoration.
 
-use std::{
-    io::{self, Write},
-    panic,
-    sync::{
-        Arc, Mutex, TryLockError,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::io::{self, Write};
 
 use crossterm::{
     cursor::Show,
@@ -22,7 +15,7 @@ use crossterm::{
 /// 可替换的终端生命周期后端。 / Replaceable terminal-lifecycle backend.
 ///
 /// <!-- @brief 可替换的终端生命周期后端。 / Replaceable terminal-lifecycle backend. -->
-pub trait TerminalOps: Send + 'static {
+pub trait TerminalOps {
     /// 进入交互终端模式。 / Enter interactive terminal mode.
     ///
     /// <!-- @brief 进入交互终端模式。 / Enter interactive terminal mode. -->
@@ -82,36 +75,13 @@ impl TerminalOps for CrosstermOps {
     }
 }
 
-type PanicCallback = dyn Fn(&panic::PanicHookInfo<'_>) + Sync + Send + 'static;
-static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
-
-struct PanicHookGuard {
-    previous: Arc<Mutex<Option<Box<PanicCallback>>>>,
-}
-
-impl Drop for PanicHookGuard {
-    fn drop(&mut self) {
-        let _installed = panic::take_hook();
-        if let Some(previous) = self
-            .previous
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take()
-        {
-            panic::set_hook(previous);
-        }
-    }
-}
-
 /// RAII 终端会话，恢复操作可安全重复调用。 / RAII terminal session with safely repeatable restoration.
 ///
 /// <!-- @brief RAII 终端会话，恢复操作可安全重复调用。 / RAII terminal session with safely repeatable restoration. -->
 pub struct TerminalSession<O: TerminalOps = CrosstermOps> {
-    ops: Arc<Mutex<O>>,
-    active: Arc<AtomicBool>,
+    ops: O,
+    active: bool,
     mouse: bool,
-    hook: Option<PanicHookGuard>,
-    hook_lock: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
 impl<O: TerminalOps> TerminalSession<O> {
@@ -119,35 +89,30 @@ impl<O: TerminalOps> TerminalSession<O> {
     ///
     /// # Arguments / 参数
     ///
-    /// - `ops` — 生命周期后端。 / Lifecycle backend.
-    /// - `active` — 会话活动状态。 / Session activity state.
-    /// - `mouse` — 是否启用鼠标捕获。 / Whether mouse capture is enabled.
+    /// - `self` — 当前终端会话。 / Current terminal session.
     ///
     /// # Returns / 返回值
     ///
     /// 成功时返回空值，失败时返回原始进入错误。 / Unit on success, or the original entry error on failure.
     ///
     /// <!-- @brief 进入终端；失败时补偿任何已发生的部分副作用。 / Enter the terminal, compensating any partial side effects on failure. -->
-    /// <!-- @param ops 生命周期后端。 / Lifecycle backend. -->
-    /// <!-- @param active 会话活动状态。 / Session activity state. -->
-    /// <!-- @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled. -->
+    /// <!-- @param self 当前终端会话。 / Current terminal session. -->
     /// <!-- @return 成功时返回空值，失败时返回原始进入错误。 / Unit on success, or the original entry error on failure. -->
-    fn enter(ops: &Arc<Mutex<O>>, active: &AtomicBool, mouse: bool) -> io::Result<()> {
-        active.store(false, Ordering::Release);
-        let mut ops = ops.lock().unwrap_or_else(|error| error.into_inner());
-        match ops.enter(mouse) {
+    fn enter(&mut self) -> io::Result<()> {
+        self.active = false;
+        match self.ops.enter(self.mouse) {
             Ok(()) => {
-                active.store(true, Ordering::Release);
+                self.active = true;
                 Ok(())
             }
             Err(error) => {
-                let _ = ops.restore(mouse);
+                let _ = self.ops.restore(self.mouse);
                 Err(error)
             }
         }
     }
 
-    /// 进入终端并安装链式 panic 恢复钩子。 / Enter the terminal and install a chained panic-restoration hook.
+    /// 进入终端，恢复由 RAII 析构统一负责。 / Enter the terminal, leaving restoration to RAII destruction.
     ///
     /// # Arguments / 参数
     ///
@@ -164,52 +129,18 @@ impl<O: TerminalOps> TerminalSession<O> {
     /// Returns an I/O error when entering raw mode, the alternate screen, or optional mouse capture
     /// fails; any partial side effects are compensated.
     ///
-    /// <!-- @brief 进入终端并安装链式 panic 恢复钩子。 / Enter the terminal and install a chained panic-restoration hook. -->
+    /// <!-- @brief 进入终端，恢复由 RAII 析构统一负责。 / Enter the terminal, leaving restoration to RAII destruction. -->
     /// <!-- @param ops 生命周期后端。 / Lifecycle backend. -->
     /// <!-- @param mouse 是否启用鼠标捕获。 / Whether mouse capture is enabled. -->
     /// <!-- @return 活跃会话或底层 I/O 错误。 / Active session or underlying I/O error. -->
     pub fn start(ops: O, mouse: bool) -> io::Result<Self> {
-        let hook_lock = PANIC_HOOK_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let ops = Arc::new(Mutex::new(ops));
-        let active = Arc::new(AtomicBool::new(false));
-        Self::enter(&ops, &active, mouse)?;
-        let previous = Arc::new(Mutex::new(Some(panic::take_hook())));
-        let hook_ops = Arc::clone(&ops);
-        let hook_active = Arc::clone(&active);
-        let hook_previous = Arc::clone(&previous);
-        panic::set_hook(Box::new(move |info| {
-            if hook_active.swap(false, Ordering::AcqRel) {
-                match hook_ops.try_lock() {
-                    Ok(mut ops) => {
-                        let _ = ops.restore(mouse);
-                    }
-                    Err(TryLockError::Poisoned(error)) => {
-                        let _ = error.into_inner().restore(mouse);
-                    }
-                    Err(TryLockError::WouldBlock) => {
-                        // 当前线程可能正因后端操作 panic 而持锁；让展开阶段的 Drop 重试。
-                        // The current thread may hold the lock while the backend panics; let Drop retry during unwinding.
-                        hook_active.store(true, Ordering::Release);
-                    }
-                }
-            }
-            if let Some(previous) = hook_previous
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-            {
-                previous(info);
-            }
-        }));
-        Ok(Self {
+        let mut session = Self {
             ops,
-            active,
+            active: false,
             mouse,
-            hook: Some(PanicHookGuard { previous }),
-            hook_lock: Some(hook_lock),
-        })
+        };
+        session.enter()?;
+        Ok(session)
     }
 
     /// 幂等恢复终端。 / Restore the terminal idempotently.
@@ -222,13 +153,12 @@ impl<O: TerminalOps> TerminalSession<O> {
     /// Returns an I/O error when the active backend cannot undo terminal capabilities; an inactive
     /// session always succeeds.
     pub fn restore(&mut self) -> io::Result<()> {
-        if !self.active.swap(false, Ordering::AcqRel) {
+        if !self.active {
             return Ok(());
         }
-        self.ops
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .restore(self.mouse)
+        self.ops.restore(self.mouse)?;
+        self.active = false;
+        Ok(())
     }
 
     /// 暂停 TUI 执行外部编辑器，并在返回后恢复 TUI。 / Suspend the TUI around an external editor and resume afterward.
@@ -253,7 +183,7 @@ impl<O: TerminalOps> TerminalSession<O> {
     pub fn suspend<T>(&mut self, operation: impl FnOnce() -> T) -> io::Result<T> {
         self.restore()?;
         let result = operation();
-        Self::enter(&self.ops, &self.active, self.mouse)?;
+        self.enter()?;
         Ok(result)
     }
 }
@@ -261,20 +191,41 @@ impl<O: TerminalOps> TerminalSession<O> {
 impl<O: TerminalOps> Drop for TerminalSession<O> {
     fn drop(&mut self) {
         let _ = self.restore();
-        self.hook.take();
-        self.hook_lock.take();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        panic::{self, AssertUnwindSafe, PanicHookInfo},
+        sync::{Arc, Mutex},
+    };
+
+    type TestPanicHook = dyn Fn(&PanicHookInfo<'_>) + Send + Sync + 'static;
+    static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct OriginalHook(Option<Box<TestPanicHook>>);
+
+    impl Drop for OriginalHook {
+        fn drop(&mut self) {
+            let _test_hook = panic::take_hook();
+            if let Some(original) = self.0.take() {
+                panic::set_hook(original);
+            }
+        }
+    }
+
+    fn hook_address(hook: &TestPanicHook) -> *const () {
+        hook as *const TestPanicHook as *const ()
+    }
 
     #[derive(Default)]
     struct State {
         enters: usize,
         restores: usize,
         fail_enter: Option<usize>,
+        fail_restore: Option<usize>,
     }
     #[derive(Clone)]
     struct FakeOps(Arc<Mutex<State>>);
@@ -288,7 +239,11 @@ mod tests {
             Ok(())
         }
         fn restore(&mut self, _: bool) -> io::Result<()> {
-            self.0.lock().unwrap().restores += 1;
+            let mut state = self.0.lock().unwrap();
+            state.restores += 1;
+            if state.fail_restore == Some(state.restores) {
+                return Err(io::Error::other("restore failure"));
+            }
             Ok(())
         }
     }
@@ -334,9 +289,59 @@ mod tests {
         let result = session.suspend(|| 42);
 
         assert!(result.is_err());
-        assert!(!session.active.load(Ordering::Acquire));
+        assert!(!session.active);
         drop(session);
         let state = state.lock().unwrap();
         assert_eq!((state.enters, state.restores), (2, 2));
+    }
+
+    #[test]
+    fn failed_restore_remains_retryable() {
+        let state = Arc::new(Mutex::new(State {
+            fail_restore: Some(1),
+            ..State::default()
+        }));
+        let mut session = TerminalSession::start(FakeOps(Arc::clone(&state)), false).unwrap();
+
+        assert!(session.restore().is_err());
+        assert!(session.active);
+        session.restore().unwrap();
+        drop(session);
+
+        let state = state.lock().unwrap();
+        assert_eq!((state.enters, state.restores), (1, 2));
+    }
+
+    #[test]
+    fn unwinding_restores_the_terminal_through_drop() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let unwind_state = Arc::clone(&state);
+
+        let result = panic::catch_unwind(AssertUnwindSafe(move || {
+            let _session = TerminalSession::start(FakeOps(unwind_state), false).unwrap();
+            panic!("exercise terminal-session unwinding");
+        }));
+
+        assert!(result.is_err());
+        let state = state.lock().unwrap();
+        assert_eq!((state.enters, state.restores), (1, 1));
+    }
+
+    #[test]
+    fn session_preserves_the_host_panic_hook_identity() {
+        let _lock = HOOK_TEST_LOCK.lock().unwrap();
+        let original = OriginalHook(Some(panic::take_hook()));
+        let host_hook: Box<TestPanicHook> = Box::new(|_| {});
+        let expected = hook_address(host_hook.as_ref());
+        panic::set_hook(host_hook);
+
+        let state = Arc::new(Mutex::new(State::default()));
+        drop(TerminalSession::start(FakeOps(state), false).unwrap());
+
+        let installed = panic::take_hook();
+        let actual = hook_address(installed.as_ref());
+        panic::set_hook(installed);
+        assert_eq!(actual, expected);
+        drop(original);
     }
 }

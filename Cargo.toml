@@ -15,7 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 arboard = { version = "3.6", default-features = false }
-ctrlc = "3.4"
 bitflags = { version = "2.9", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 crossterm = "0.29"
