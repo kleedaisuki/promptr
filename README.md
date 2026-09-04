@@ -50,6 +50,10 @@ flowchart LR
 
 要求 Rust `1.88` 或更高版本（项目使用 Rust 2024 edition）。
 
+Linux（GNU）、macOS 与 Windows（MSVC）均在 GitHub Actions 上使用原生运行器执行完整
+测试、Clippy、Rustdoc 与 release 构建；路径、外部编辑器参数和应用数据目录始终使用平台
+原生类型与约定，不假设 UTF-8 文件系统路径或 Unix shell。
+
 ```bash
 git clone https://github.com/kleedaisuki/promptr.git
 cd promptr
