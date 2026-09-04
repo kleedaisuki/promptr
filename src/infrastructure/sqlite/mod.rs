@@ -1413,7 +1413,7 @@ fn load_snapshot(connection: &Connection) -> Result<CatalogSnapshot> {
 
 fn rebuild_fts(connection: &Connection) -> Result<()> {
     connection.execute_batch("DROP TABLE IF EXISTS node_fts; CREATE VIRTUAL TABLE node_fts USING fts5(node_id UNINDEXED, symbol, content, description, tags);").map_err(storage)?;
-    connection.execute("INSERT INTO node_fts(node_id,symbol,content,description,tags) SELECT n.id,n.symbol,COALESCE(f.text,''),COALESCE(n.description,''),COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id ORDER BY n.id",[]).map_err(storage)?;
+    connection.execute("INSERT INTO node_fts(rowid,node_id,symbol,content,description,tags) SELECT n.id,n.id,n.symbol,COALESCE(f.text,''),COALESCE(n.description,''),COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id ORDER BY n.id",[]).map_err(storage)?;
     Ok(())
 }
 
@@ -1455,9 +1455,10 @@ fn fts_matches_canonical(connection: &Connection) -> rusqlite::Result<bool> {
           NOT EXISTS (
             SELECT 1
             FROM canonical c
-            LEFT JOIN node_fts x ON CAST(x.node_id AS INTEGER)=c.node_id
+            LEFT JOIN node_fts x ON x.rowid=c.node_id
             WHERE x.rowid IS NULL
-               OR CAST(x.node_id AS TEXT) IS NOT CAST(c.node_id AS TEXT)
+               OR x.rowid IS NOT c.node_id
+               OR x.node_id IS NOT c.node_id
                OR x.symbol IS NOT c.symbol
                OR x.content IS NOT c.content
                OR x.description IS NOT c.description
@@ -1466,8 +1467,8 @@ fn fts_matches_canonical(connection: &Connection) -> rusqlite::Result<bool> {
           AND NOT EXISTS (
             SELECT 1
             FROM node_fts x
-            LEFT JOIN nodes n ON n.id=CAST(x.node_id AS INTEGER)
-            WHERE n.id IS NULL
+            LEFT JOIN nodes n ON n.id=x.rowid
+            WHERE n.id IS NULL OR x.node_id IS NOT n.id
           )
           AND (SELECT count(*) FROM node_fts)=(SELECT count(*) FROM nodes)
         "#,
@@ -1478,9 +1479,9 @@ fn fts_matches_canonical(connection: &Connection) -> rusqlite::Result<bool> {
 
 fn refresh_fts_node(connection: &Connection, node_id: i64) -> Result<()> {
     connection
-        .execute("DELETE FROM node_fts WHERE node_id=?1", [node_id])
+        .execute("DELETE FROM node_fts WHERE rowid=?1", [node_id])
         .map_err(storage)?;
-    connection.execute("INSERT INTO node_fts(node_id,symbol,content,description,tags) SELECT n.id,n.symbol,COALESCE(f.text,''),COALESCE(n.description,''),COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id WHERE n.id=?1",[node_id]).map_err(storage)?;
+    connection.execute("INSERT INTO node_fts(rowid,node_id,symbol,content,description,tags) SELECT n.id,n.id,n.symbol,COALESCE(f.text,''),COALESCE(n.description,''),COALESCE((SELECT group_concat(tag,' ') FROM (SELECT tag FROM node_tags WHERE node_id=n.id ORDER BY tag)),'') FROM nodes n LEFT JOIN fragments f ON f.node_id=n.id WHERE n.id=?1",[node_id]).map_err(storage)?;
     Ok(())
 }
 
@@ -1959,6 +1960,14 @@ mod tests {
             .unwrap();
         {
             let connection = database.lock().unwrap();
+            let mismatched_rowids: i64 = connection
+                .query_row(
+                    "SELECT count(*) FROM node_fts WHERE rowid IS NOT node_id",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(mismatched_rowids, 0);
             let renamed: (String, String, String, String) = connection
                 .query_row(
                     "SELECT symbol,content,description,tags FROM node_fts WHERE symbol='Renamed'",
@@ -2212,6 +2221,49 @@ mod tests {
             )
             .unwrap();
         assert_eq!(content, "canonical");
+    }
+
+    #[test]
+    fn normal_open_repairs_fts_rows_whose_rowid_does_not_match_node_id() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.db");
+        let mut database = SqliteDatabase::open(&path).unwrap();
+        database
+            .write_transaction(&mut |writer| {
+                writer.upsert_fragment(&symbol("Leaf"), &text("canonical"), None)?;
+                Ok(vec![])
+            })
+            .unwrap();
+        let revision = database.catalog_revision().unwrap();
+        let node_id: i64 = database
+            .lock()
+            .unwrap()
+            .query_row("SELECT id FROM nodes WHERE symbol='Leaf'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        database
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE node_fts SET rowid=rowid+1000 WHERE node_id=?1",
+                [node_id],
+            )
+            .unwrap();
+        drop(database);
+
+        let database = SqliteDatabase::open(&path).unwrap();
+        assert_eq!(database.catalog_revision().unwrap(), revision);
+        let indexed_ids: (i64, i64) = database
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT rowid,node_id FROM node_fts WHERE symbol='Leaf'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(indexed_ids, (node_id, node_id));
     }
 
     #[test]
