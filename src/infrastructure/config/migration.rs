@@ -118,6 +118,10 @@ pub fn check_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>
 pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnostic>> {
     let _lock = ConfigLock::acquire(path)?;
     let original = fs::read(path).map_err(|error| io_diagnostics(path, error))?;
+    let permissions = fs::metadata(path)
+        .map(|metadata| metadata.permissions())
+        .map_err(|error| io_diagnostics(path, error))?;
+    let line_ending = LineEnding::detect(&original);
     let text = std::str::from_utf8(&original).map_err(|error| {
         vec![
             ConfigDiagnostic::error("E_CONFIG_UTF8", error.to_string())
@@ -135,7 +139,7 @@ pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnosti
     }
     let mut document = parsed.document;
     upgrade_document(&mut document, from)?;
-    let migrated = document.to_string();
+    let migrated = line_ending.normalize(&document.to_string());
     let checked = ParsedConfig::parse(&migrated, path.display().to_string())?;
     validate_standalone(checked.raw, path)?;
 
@@ -145,11 +149,12 @@ pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnosti
     temporary
         .write_all(migrated.as_bytes())
         .map_err(|error| io_diagnostics(path, error))?;
+    fs::set_permissions(temporary.path(), permissions)
+        .map_err(|error| io_diagnostics(path, error))?;
     temporary
         .as_file()
         .sync_all()
         .map_err(|error| io_diagnostics(path, error))?;
-    set_restrictive_permissions(temporary.path()).map_err(|error| io_diagnostics(path, error))?;
     let backup = backup_path(path);
     fs::write(&backup, &original).map_err(|error| io_diagnostics(&backup, error))?;
     OpenOptions::new()
@@ -166,6 +171,103 @@ pub fn migrate_file(path: &Path) -> Result<MigrationOutcome, Vec<ConfigDiagnosti
         to: CURRENT_SCHEMA_VERSION,
         backup,
     })
+}
+
+/// 配置文件使用的换行约定 / Line-ending convention used by a configuration file.
+///
+/// <!-- @brief 配置文件使用的换行约定 / Line-ending convention used by a configuration file. -->
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LineEnding {
+    /// Unix 风格换行 / Unix-style line ending.
+    ///
+    /// <!-- @brief Unix 风格换行 / Unix-style line ending. -->
+    Lf,
+    /// Windows 风格换行 / Windows-style line ending.
+    ///
+    /// <!-- @brief Windows 风格换行 / Windows-style line ending. -->
+    CrLf,
+}
+
+impl LineEnding {
+    /// 从原始字节选择迁移输出的换行约定 / Selects the migration output convention from raw bytes.
+    ///
+    /// 混合输入采用出现次数较多的约定；数量相同时采用首次出现的约定。没有换行时默认
+    /// 使用 LF / Mixed input uses the more frequent convention; ties use the first convention
+    /// encountered. Input without line endings defaults to LF.
+    ///
+    /// # Arguments
+    ///
+    /// - `input`: 迁移前的配置字节 / Configuration bytes before migration.
+    ///
+    /// # Returns
+    ///
+    /// 应用于迁移输出的换行约定 / The convention to apply to migrated output.
+    ///
+    /// <!-- @param input 迁移前的配置字节 / Configuration bytes before migration. -->
+    /// <!-- @return 应用于迁移输出的换行约定 / The convention to apply to migrated output. -->
+    fn detect(input: &[u8]) -> Self {
+        let mut crlf = 0;
+        let mut lf = 0;
+        let mut first = None;
+
+        for (index, byte) in input.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let ending = if index > 0 && input[index - 1] == b'\r' {
+                crlf += 1;
+                Self::CrLf
+            } else {
+                lf += 1;
+                Self::Lf
+            };
+            first.get_or_insert(ending);
+        }
+
+        match crlf.cmp(&lf) {
+            std::cmp::Ordering::Greater => Self::CrLf,
+            std::cmp::Ordering::Less => Self::Lf,
+            std::cmp::Ordering::Equal => first.unwrap_or(Self::Lf),
+        }
+    }
+
+    /// 将文本中的换行统一为当前约定 / Normalizes all text line endings to this convention.
+    ///
+    /// # Arguments
+    ///
+    /// - `text`: TOML 编辑器序列化的 UTF-8 文本 / UTF-8 text serialized by the TOML editor.
+    ///
+    /// # Returns
+    ///
+    /// 使用所选约定的文本 / Text using the selected convention.
+    ///
+    /// <!-- @param text TOML 编辑器序列化的 UTF-8 文本 / UTF-8 text serialized by the TOML editor. -->
+    /// <!-- @return 使用所选约定的文本 / Text using the selected convention. -->
+    fn normalize(self, text: &str) -> String {
+        let replacement = match self {
+            Self::Lf => "\n",
+            Self::CrLf => "\r\n",
+        };
+        let bytes = text.as_bytes();
+        let mut normalized = String::with_capacity(text.len());
+        let mut start = 0;
+
+        for (index, byte) in bytes.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let content_end = if index > start && bytes[index - 1] == b'\r' {
+                index - 1
+            } else {
+                index
+            };
+            normalized.push_str(&text[start..content_end]);
+            normalized.push_str(replacement);
+            start = index + 1;
+        }
+        normalized.push_str(&text[start..]);
+        normalized
+    }
 }
 
 pub(super) fn upgrade_document(
@@ -304,17 +406,6 @@ fn io_diagnostics(path: &Path, error: std::io::Error) -> Vec<ConfigDiagnostic> {
     ]
 }
 
-#[cfg(unix)]
-fn set_restrictive_permissions(path: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn set_restrictive_permissions(_path: &Path) -> std::io::Result<()> {
-    Ok(())
-}
-
 fn sync_parent(parent: &Path) {
     if let Ok(directory) = fs::File::open(parent) {
         let _ = directory.sync_all();
@@ -393,6 +484,64 @@ mod tests {
         let result = fs::read_to_string(path).unwrap();
         assert!(result.contains("# retained"));
         assert!(result.contains("schema_version = 1"));
+    }
+
+    #[test]
+    fn migration_preserves_crlf_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, b"schema_version = 0\r\n# retained\r\n").unwrap();
+
+        migrate_file(&path).unwrap();
+
+        assert_eq!(
+            fs::read(path).unwrap(),
+            b"schema_version = 1\r\n# retained\r\n"
+        );
+    }
+
+    #[test]
+    fn migration_preserves_lf_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, b"schema_version = 0\n# retained\n").unwrap();
+
+        migrate_file(&path).unwrap();
+
+        assert_eq!(fs::read(path).unwrap(), b"schema_version = 1\n# retained\n");
+    }
+
+    #[test]
+    fn migration_normalizes_mixed_newlines_to_the_majority_convention() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(
+            &path,
+            b"schema_version = 0\r\n# first\r\n# minority\n# last\r\n",
+        )
+        .unwrap();
+
+        migrate_file(&path).unwrap();
+
+        assert_eq!(
+            fs::read(path).unwrap(),
+            b"schema_version = 1\r\n# first\r\n# minority\r\n# last\r\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn migration_preserves_unix_permission_bits() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, b"schema_version = 0\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+
+        migrate_file(&path).unwrap();
+
+        assert_eq!(fs::metadata(path).unwrap().mode() & 0o777, 0o640);
     }
 
     #[test]
