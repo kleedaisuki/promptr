@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://promptr.moesegfault.dev/sitemap.xml

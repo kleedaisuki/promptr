@@ -1,0 +1,104 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate static site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate required files and links
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat site/CNAME)" = "promptr.moesegfault.dev"
+          test -s site/index.html
+          test -s site/404.html
+          test -s site/styles.css
+          test -s site/app.js
+          test -s site/vendor/moesegfault-style-v0.1.1.css
+          echo "b006ede1a16c666780b4b3e9fb62894a1af0c5adf7eb5f830331d370334645508dc3e28da18407d09208a5d4dd7538e1  site/vendor/moesegfault-style-v0.1.1.css" | sha384sum --check --strict
+          ! grep -RInE '(href|src)="/(site/)?' site/index.html
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          class StrictEnoughParser(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.ids = set()
+                  self.references = []
+
+              def handle_starttag(self, tag, attrs):
+                  values = dict(attrs)
+                  if "id" in values:
+                      assert values["id"] not in self.ids, f"duplicate id: {values['id']}"
+                      self.ids.add(values["id"])
+                  for name in ("href", "src"):
+                      if name in values:
+                          self.references.append(values[name])
+
+          for path in (Path("site/index.html"), Path("site/404.html")):
+              parser = StrictEnoughParser()
+              parser.feed(path.read_text(encoding="utf-8"))
+              parser.close()
+              for reference in parser.references:
+                  parsed = urlsplit(reference)
+                  if parsed.scheme:
+                      assert parsed.scheme == "https", f"non-HTTPS URL in {path}: {reference}"
+                      continue
+                  if parsed.fragment and not parsed.path:
+                      assert unquote(parsed.fragment) in parser.ids, f"missing anchor in {path}: {reference}"
+                      continue
+                  target = Path("site") / unquote(parsed.path.lstrip("/")) if parsed.path.startswith("/") else path.parent / unquote(parsed.path)
+                  assert target.resolve().is_relative_to(Path("site").resolve()), f"path escapes site: {reference}"
+                  assert target.exists(), f"missing local target in {path}: {reference}"
+          PY
+
+  deploy:
+    name: Deploy GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

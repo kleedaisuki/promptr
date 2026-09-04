@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Promptr</title>
+  <defs><linearGradient id="coral" x1="8" y1="8" x2="56" y2="56"><stop stop-color="#ff8569"/><stop offset="1" stop-color="#bd4525"/></linearGradient></defs>
+  <rect width="64" height="64" rx="16" fill="url(#coral)"/>
+  <path fill="#fffaf2" d="M18 12h18c10 0 17 6 17 15s-7 15-17 15h-7v10H18V12Zm11 9v12h7c4 0 6-2 6-6s-2-6-6-6h-7Z"/>
+  <path fill="#ffb55e" d="m51 7 1.7 4.3L57 13l-4.3 1.7L51 19l-1.7-4.3L45 13l4.3-1.7L51 7Z"/>
+</svg>

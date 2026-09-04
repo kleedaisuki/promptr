@@ -1,5 +1,8 @@
 # Promptr
 
+[产品展示页](https://promptr.moesegfault.dev) · [系统设计](docs/sys.md) ·
+[DSL 规范](docs/dsl.md)
+
 Promptr 是一个本地优先（local-first）的持久化提示词图管理器。它把可复用正文保存为
 **Fragment**，把有序组合保存为 **Prompt**，并通过一门小型领域特定语言
 （domain-specific language, DSL）对同一张有向无环图（directed acyclic graph, DAG）

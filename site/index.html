@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-moe-theme="auto">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Promptr：本地优先、持久化、确定性的提示词图管理器。"
+   >
+    <meta name="theme-color" content="#fff6ea">
+    <meta name="color-scheme" content="light dark">
+    <link rel="canonical" href="https://promptr.moesegfault.dev/">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="vendor/moesegfault-style-v0.1.1.css">
+    <link rel="stylesheet" href="styles.css">
+    <title>Promptr · 把提示词组织成图</title>
+    <script>
+      (() => {
+        document.documentElement.classList.add("js");
+        try {
+          const theme = localStorage.getItem("promptr-theme");
+          if (theme === "light" || theme === "dark") {
+            document.documentElement.dataset.moeTheme = theme;
+          }
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <header class="site-header">
+      <div class="moe-container header-inner">
+        <a class="moe-brand-mark" href="#top">
+          <span class="moe-brand-mark__glyph" aria-hidden="true">P</span>
+          <span class="moe-brand-mark__text">
+            <strong class="moe-brand-mark__title">Promptr</strong>
+            <span class="moe-brand-mark__subtitle"
+              >Persistent named prompt graph</span
+            >
+          </span>
+        </a>
+        <nav aria-label="主要导航">
+          <a href="#model">模型</a>
+          <a href="#workflow">工作流</a>
+          <a href="#start">开始使用</a>
+        </nav>
+        <label class="theme-picker">
+          <span class="moe-visually-hidden">配色主题</span>
+          <select id="theme" aria-label="配色主题">
+            <option value="auto">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="moe-container hero-grid">
+          <div>
+            <p class="kicker">
+              <span class="moe-status-dot" aria-hidden="true"></span>
+              LOCAL-FIRST · RUST 2024
+            </p>
+            <h1 id="hero-title">把零散提示词，<em>组织成图。</em></h1>
+            <p class="lede">
+              Promptr 用 Fragment 保存正文，用 Prompt
+              编排有序引用，再通过一门小型 DSL 查询、修改，并确定性地渲染为规范
+              XML。
+            </p>
+            <div class="moe-cluster hero-actions">
+              <a class="moe-button" href="#start">从源码安装</a>
+              <a
+                class="moe-button"
+                data-variant="secondary"
+                href="https://github.com/kleedaisuki/promptr"
+                >查看 GitHub</a
+              >
+            </div>
+            <p class="hero-meta">
+              <span class="moe-badge">v0.1.0</span> 接口仍在演进 · GPL-3.0-only
+            </p>
+          </div>
+          <aside class="terminal" aria-label="Promptr DSL 示例">
+            <div class="terminal-bar">
+              <span></span><span></span><span></span><b>promptr · REPL</b>
+            </div>
+            <pre><code>promptr&gt; <span class="kw">FRAGMENT</span> Notice;
+Preserve userspace compatibility.
+.save
+promptr&gt; Coding: [Notice, Notice];
+promptr&gt; <span class="kw">METADATA</span> Coding <span class="kw">TAGS</span>
+  [<span class="str">"coding"</span>, <span class="str">"systems"</span>];
+promptr&gt; <span class="kw">OUTPUT</span> Coding;</code></pre>
+            <div class="terminal-result" role="group" aria-label="输出示例">
+              <span>→</span>
+              <code>&lt;Coding&gt;…&lt;/Coding&gt;</code>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section
+        class="section section-tint"
+        id="model"
+        aria-labelledby="model-title"
+      >
+        <div class="moe-container">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">THE MODEL</p>
+              <h2 id="model-title">两种节点，一套明确语义</h2>
+            </div>
+            <p>
+              名字既是 DSL 符号，也是 XML
+              元素名。组合保持顺序和重复引用；提交后的图始终无环。
+            </p>
+          </div>
+          <div class="feature-grid">
+            <article class="moe-card">
+              <div class="moe-card__body">
+                <span class="feature-number">01</span>
+                <h3>Fragment · 内容叶子</h3>
+                <p>保存可复用的 XML 1.0 文本。正文不会悄悄变成 XML 结构。</p>
+              </div>
+            </article>
+            <article class="moe-card">
+              <div class="moe-card__body">
+                <span class="feature-number">02</span>
+                <h3>Prompt · 有序组合</h3>
+                <p>引用 Fragment 或其他 Prompt；共享子图和重复子项都被保留。</p>
+              </div>
+            </article>
+            <article class="moe-card">
+              <div class="moe-card__body">
+                <span class="feature-number">03</span>
+                <h3>Catalog · 持久目录</h3>
+                <p>SQLite 保存节点、描述与标签，并支持全局或可达子图内搜索。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="workflow" aria-labelledby="workflow-title">
+        <div class="moe-container">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ONE SEMANTIC CORE</p>
+              <h2 id="workflow-title">从输入到提交，只有一条路</h2>
+            </div>
+            <p>TUI、REPL、脚本与单次求值共享解析、编译、事务和解释语义。</p>
+          </div>
+          <ol class="pipeline">
+            <li>
+              <span>01</span><strong>解析</strong><small>DSL source</small>
+            </li>
+            <li>
+              <span>02</span><strong>预编译</strong><small>snapshot</small>
+            </li>
+            <li>
+              <span>03</span><strong>准备正文</strong
+              ><small>outside lock</small>
+            </li>
+            <li>
+              <span>04</span><strong>重新编译</strong><small>transaction</small>
+            </li>
+            <li>
+              <span>05</span><strong>提交并发布</strong
+              ><small>atomic output</small>
+            </li>
+          </ol>
+          <div class="architecture-grid">
+            <article>
+              <p class="eyebrow">INTERFACE</p>
+              <h3>多种宿主</h3>
+              <p>
+                TUI、流式 REPL、<code>run</code>、<code>eval</code> 与
+                <code>check</code>。
+              </p>
+            </article>
+            <article>
+              <p class="eyebrow">APPLICATION + LANGUAGE</p>
+              <h3>同一执行核心</h3>
+              <p>能力检查、事务协调、解析、编译与解释。</p>
+            </article>
+            <article>
+              <p class="eyebrow">DOMAIN + INFRASTRUCTURE</p>
+              <h3>内核与适配器</h3>
+              <p>领域图不依赖终端或 SQLite；基础设施实现端口。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-tint" aria-labelledby="contracts-title">
+        <div class="moe-container contracts-grid">
+          <div>
+            <p class="eyebrow">OUTPUT CONTRACTS</p>
+            <h2 id="contracts-title">人看得清，机器也读得稳</h2>
+            <p class="lede">
+              交互查看用 human，程序集成用版本化 JSON，只取 XML 时使用 raw。
+            </p>
+            <ul class="check-list">
+              <li>查询结果在事务内缓冲，提交成功后才发布</li>
+              <li>确定性的规范 XML，保持组合顺序与重复引用</li>
+              <li>配置、状态、备份、一致性检查与索引重建齐备</li>
+              <li>Linux、macOS 与 Windows 使用平台原生应用目录</li>
+            </ul>
+          </div>
+          <div class="moe-card output-card">
+            <div class="moe-card__header">
+              <span class="moe-badge" data-tone="success">JSON schema v1</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy="#json-example"
+              >
+                复制
+              </button>
+            </div>
+            <div class="moe-card__body">
+              <pre><code id="json-example">promptr --format json eval 'LIST;'
+
+{"schema_version":1,
+ "ok":true,
+ "values":[…]}</code></pre>
+            </div>
+            <div class="moe-card__footer">
+              <code>raw</code> 模式只接受由 <code>OUTPUT</code> 产生的 XML
+              结果。
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="start" aria-labelledby="start-title">
+        <div class="moe-container start-grid">
+          <div>
+            <p class="eyebrow">GET STARTED</p>
+            <h2 id="start-title">用 Rust 1.88+ 从源码开始</h2>
+            <p>
+              项目使用 Rust 2024 edition。当前页面不承诺尚未发布的预编译二进制。
+            </p>
+            <div class="moe-notice" data-tone="warning">
+              v0.1 明确不包含网络同步、多人协作、插件系统、模板变量或 DSL 内
+              shell。
+            </div>
+          </div>
+          <div class="install-panel">
+            <div class="install-tabs" role="group" aria-label="安装命令">
+              <span>PowerShell / shell</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy="#install-code"
+              >
+                复制
+              </button>
+            </div>
+            <pre><code id="install-code">git clone https://github.com/kleedaisuki/promptr.git
+cd promptr
+cargo install --path .
+promptr --help</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="moe-container footer-inner">
+        <p>
+          <strong>Promptr</strong> — compose once, render deterministically.
+        </p>
+        <p>
+          <a href="https://github.com/kleedaisuki/promptr">Source</a> ·
+          <a href="https://github.com/kleedaisuki/promptr/blob/main/docs/dsl.md"
+            >DSL spec</a
+          >
+          · GPL-3.0-only
+        </p>
+      </div>
+    </footer>
+    <div class="copy-status" role="status" aria-live="polite"></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
